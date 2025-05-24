@@ -1756,7 +1756,62 @@ i submit the docs, the button animates for a second, then just goes back to bein
 
 _**Assistant**_
 
+<<<<<<< HEAD
 
+=======
+That's definitely strange behavior! If the "Analyze Documents" button animates briefly and then returns to its normal state without navigating or showing persistent feedback, it suggests an issue on the client-side *before* it even gets to the polling stage, or the initial POST request to `/api/process` is failing silently or very quickly.
+
+Let's investigate the client-side submission logic.
+
+**Step 1: Examine `src/components/UploadForm.tsx`**
+
+This component is likely responsible for handling the file uploads and initiating the `/api/process` call. I need to see how it handles:
+*   Form submission
+*   API request to `/api/process`
+*   Response handling from `/api/process` (success and error)
+*   Redirection to the results page
+
+Could you please provide the content of `src/components/UploadForm.tsx`?
+
+---
+
+Could not find file 'src/components/UploadForm.tsx' in the workspace.
+
+---
+
+My apologies, I assumed the path. Let me try to find it.
+
+---
+
+<details>
+            <summary>Searched codebase "UploadForm.tsx" • **0** results</summary>
+        
+No results found
+</details>
+
+---
+
+It seems like the `UploadForm.tsx` component doesn't exist or I can't locate it with that name.
+
+Could you please point me to the file that handles the PDF uploads and the "Analyze Documents" button logic? It might be directly in `src/app/page.tsx` or a similarly named component.
+
+In the meantime, let's check the browser's developer console **Network** tab when you click "Analyze Documents". This will show us:
+1.  If the POST request to `/api/process` is actually being made.
+2.  What the HTTP status code of the response is (e.g., 200, 400, 500).
+3.  The content of the response, which might contain an error message.
+
+**To check the Network Tab:**
+1.  Open your browser's developer tools (usually by right-clicking and selecting "Inspect" or pressing F12).
+2.  Go to the "Network" tab.
+3.  Make sure "Preserve log" is checked (if available) and that it's recording.
+4.  Click the "Analyze Documents" button on your application.
+5.  Look for a request to `/api/process` in the list. Click on it.
+6.  Examine the "Headers" and "Response" (or "Preview") sub-tabs for that request.
+
+What do you see there? This information will be crucial.
+
+Also, are there any errors in the browser's **Console** tab when this happens?
+>>>>>>> codex/update-models-to-claude-sonnet-4-20250514
 
 ---
 

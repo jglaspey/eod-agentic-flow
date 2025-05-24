@@ -2,8 +2,7 @@
 
 ## What We Fixed
 
-1. **Updated to Latest AI Models**:
-   - OpenAI: `gpt-4o` (latest GPT-4 model)
+1. **Updated to Latest AI Model**:
    - Anthropic: `claude-sonnet-4-20250514` (Claude 4 Sonnet)
 
 2. **Fixed API Issues**:
@@ -27,7 +26,7 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
 
 # AI API Keys
-OPENAI_API_KEY=sk-your_openai_key_here
+OPENAI_API_KEY=sk-your_openai_key_here # optional
 ANTHROPIC_API_KEY=sk-ant-your_anthropic_key_here
 ```
 
@@ -55,10 +54,9 @@ npm run dev
 
 ## What's Different Now
 
-### AI Models Used:
-- **Address/Claim/Carrier/RCV**: OpenAI GPT-4o
-- **Roof Measurements**: Claude 4 Sonnet
-- **Analysis**: Claude 4 Sonnet
+### AI Model Used:
+- **All Steps**: Claude 4 Sonnet
+- You can switch to OpenAI GPT models by setting `OPENAI_API_KEY` and updating `ai_config`
 
 ### Improved Prompts:
 - Better handling of multi-line claim numbers
