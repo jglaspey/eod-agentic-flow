@@ -35,3 +35,5 @@ next-env.d.ts
 
 # PDF uploads (if storing locally during development)
 /uploads
+# SpecStory explanation file
+.specstory/.what-is-this.md
