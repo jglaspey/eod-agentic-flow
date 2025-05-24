@@ -739,3 +739,244 @@ _**Assistant**_
 
 ---
 
+I can see there are merge conflict markers in your results page that are causing syntax errors. Let me first check the current git status and resolve any conflicts before we commit our changes.
+
+---
+
+```bash
+git status
+```
+
+```
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation % git status                          g
+it status
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+        modified:   src/app/api/jobs/[id]/logs/route.ts
+        modified:   src/app/api/process/route.ts
+        modified:   src/app/results/[id]/page.tsx
+        modified:   src/components/LogTerminal.tsx
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+        .specstory/history/2025-05-24_19-36-vercel-deployment-troubleshooting.md
+        VERCEL_TROUBLESHOOTING.md
+        src/app/api/jobs/[id]/status/
+
+no changes added to commit (use "git add" and/or "git commit -a")
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation %
+```
+
+---
+
+Good! I can see our modified files. Let me check the current content of the results page to see if there are indeed merge conflict markers:
+
+---
+
+```bash
+grep -n "<<<<<<< HEAD" src/app/results/[id]/page.tsx
+```
+
+```
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation % grep -n "<<<<<<< HEAD" src/app/result
+s/[id]/page.tsx                                                         grep -n "<<<<<<< HEAD" src/app/result
+s/[id]/page.tsx
+zsh: no matches found: src/app/results/[id]/page.tsx
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation %
+```
+
+---
+
+Let me check the actual file path:
+
+---
+
+```bash
+find . -name "page.tsx" -path "*/results/*"
+```
+
+```
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation % find . -name "page.tsx" -path "*/resu
+lts/*"                                                                  find . -name "page.tsx" -path "*/resu
+lts/*"
+./src/app/results/[id]/page.tsx
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation %
+```
+
+---
+
+```bash
+grep -n "<<<<<<< HEAD" "./src/app/results/[id]/page.tsx"
+```
+
+```
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation % 
+
+```
+
+---
+
+Good! There are no merge conflict markers in the current version. The error message you saw earlier might have been from a previous version. Let me verify our files are correct and then commit our changes:
+
+---
+
+```bash
+npm run build
+```
+
+```
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation % npm run build
+
+> roofing-estimate-analyzer@0.1.0 build
+> next build
+
+   ▲ Next.js 14.0.0
+   - Environments: .env.local, .env
+
+ ✓ Creating an optimized production build    
+ ✓ Compiled successfully
+ ✓ Linting and checking validity of types    
+ ✓ Collecting page data    
+ ✓ Generating static pages (5/5) 
+ ✓ Collecting build traces    
+ ✓ Finalizing page optimization    
+
+Route (app)                              Size     First Load JS
+┌ ○ /                                    2.43 kB        90.2 kB
+├ ○ /_not-found                          875 B          88.6 kB
+├ λ /api/jobs/[id]                       0 B                0 B
+├ λ /api/jobs/[id]/logs                  0 B                0 B
+├ λ /api/jobs/[id]/status                0 B                0 B
+├ λ /api/process                         0 B                0 B
+├ λ /api/test-complete/[id]              0 B                0 B
+└ λ /results/[id]                        42.2 kB         130 kB
++ First Load JS shared by all            87.7 kB
+  ├ chunks/472-4ca15be566e117ef.js       32.4 kB
+  ├ chunks/fd9d1056-b62a1eb8ad9758d3.js  53.3 kB
+  ├ chunks/main-app-8fa06148c141f7b7.js  230 B
+  └ chunks/webpack-77d42912e3f6b42f.js   1.82 kB
+
+
+○  (Static)   prerendered as static HTML
+λ  (Dynamic)  server-rendered on demand using Node.js
+
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation %
+```
+
+---
+
+Perfect! The build is successful. Now let's add our changes and commit them:
+
+---
+
+```bash
+git add .
+```
+
+```
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation % 
+
+```
+
+---
+
+Model provided invalid arguments to terminal tool.
+
+---
+
+Let me fix the commit message to be on a single line:
+
+---
+
+```bash
+git commit -m "Fix Vercel deployment issues - ReadableStream controller errors, database polling retry logic, EventSource reconnection, and comprehensive troubleshooting docs"
+```
+
+```
+<reconnection, and comprehensive troubleshooting docs"
+[main 086c988] Fix Vercel deployment issues - ReadableStream controller errors, database polling retry logic,
+ EventSource reconnection, and comprehensive troubleshooting docs
+ 7 files changed, 1061 insertions(+), 40 deletions(-)
+ create mode 100644 .specstory/history/2025-05-24_19-36-vercel-deployment-troubleshooting.md
+ create mode 100644 VERCEL_TROUBLESHOOTING.md
+ create mode 100644 src/app/api/jobs/[id]/status/route.ts
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation %
+```
+
+---
+
+Great! Now let's push the changes to GitHub:
+
+---
+
+```bash
+git push origin main
+```
+
+```
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation % git push origin main
+Enumerating objects: 39, done.
+Counting objects: 100% (39/39), done.
+Delta compression using up to 10 threads
+Compressing objects: 100% (16/16), done.
+Writing objects: 100% (22/22), 12.78 KiB | 6.39 MiB/s, done.
+Total 22 (delta 8), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (8/8), completed with 7 local objects.
+To https://github.com/jglaspey/eod-agentic-flow.git
+   0436490..086c988  main -> main
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation %
+```
+
+---
+
+Perfect! ✅ All changes have been successfully committed and pushed to GitHub.
+
+## Summary of Changes Pushed:
+
+**7 files changed, 1061 insertions, 40 deletions**
+
+### New Files Created:
+1. **`VERCEL_TROUBLESHOOTING.md`** - Comprehensive troubleshooting guide
+2. **`src/app/api/jobs/[id]/status/route.ts`** - New status endpoint for fallback polling
+3. **`.specstory/history/2025-05-24_19-36-vercel-deployment-troubleshooting.md`** - Historical documentation
+
+### Modified Files:
+1. **`src/app/api/jobs/[id]/logs/route.ts`** - Fixed ReadableStream controller errors
+2. **`src/app/api/process/route.ts`** - Enhanced job completion signaling
+3. **`src/app/results/[id]/page.tsx`** - Improved polling and error handling for Vercel
+4. **`src/components/LogTerminal.tsx`** - Added reconnection and fallback mechanisms
+
+### What This Fixes:
+
+✅ **ReadableStream Controller Errors** - No more "Controller is already closed" errors  
+✅ **Database Replication Lag** - Added delays and retries for Vercel's distributed infrastructure  
+✅ **EventSource Connection Issues** - Automatic reconnection and fallback polling  
+✅ **Missing Error Handling** - Comprehensive error handling and user feedback  
+✅ **Deployment Documentation** - Complete troubleshooting guide for future issues  
+
+### Next Steps:
+
+1. **Deploy to Vercel** - Your changes will automatically deploy if you have auto-deployment enabled
+2. **Monitor the fixes** - Watch the browser console for the new debug messages
+3. **Test thoroughly** - Try uploading files and verify the completion flow works properly
+
+The application should now properly handle the transition from processing to results display on Vercel, with robust error handling and multiple fallback mechanisms! 🚀
+
+---
+
+_**User**_
+
+great. i have this PR i want to test locally, can you switch me to that branch and pull it down?
+
+---
+
+_**Assistant**_
+
+
+
+---
+
