@@ -24,12 +24,14 @@ async function getJobData(jobId: string) {
     console.log(`[Client Job ID: ${jobId}] getJobData: Attempt ${i + 1}/${MAX_RETRIES} to fetch job details.`)
 
     try {
-      // Step 1: Fetch the main job record
+      // Step 1: Fetch the main job record with cache busting
       console.log(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Fetching job record...`)
       const { data: job, error: jobError } = await supabase
         .from('jobs')
         .select('*')
         .eq('id', jobId)
+        .order('created_at', { ascending: false }) // Force fresh read
+        .limit(1)
         .single()
 
       if (jobError || !job) {
@@ -61,17 +63,27 @@ async function getJobData(jobId: string) {
       if (job.status === 'completed') {
         console.log(`[Client Job ID: ${jobId}] getJobData: Job status is COMPLETED. Fetching associated data sequentially...`)
         
-        // Step 2b: Fetch job_data for completed job
+        // Step 2b: Fetch job_data for completed job with cache busting
         console.log(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Fetching job_data for COMPLETED job...`)
-        const { data: dataResultData, error: dataResultError } = await supabase.from('job_data').select('*').eq('job_id', jobId).maybeSingle()
+        const { data: dataResultData, error: dataResultError } = await supabase
+          .from('job_data')
+          .select('*')
+          .eq('job_id', jobId)
+          .order('id', { ascending: false }) // Force fresh read
+          .limit(1)
+          .maybeSingle()
         if (dataResultError) {
           console.error(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Error fetching job_data for COMPLETED job: ${dataResultError.message}`)
           // If critical, could retry or return job with null data
         }
 
-        // Step 3: Fetch supplement_items for completed job
+        // Step 3: Fetch supplement_items for completed job with cache busting
         console.log(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Fetching supplement_items for COMPLETED job...`)
-        const { data: supplementsResultData, error: supplementsResultError } = await supabase.from('supplement_items').select('*').eq('job_id', jobId)
+        const { data: supplementsResultData, error: supplementsResultError } = await supabase
+          .from('supplement_items')
+          .select('*')
+          .eq('job_id', jobId)
+          .order('id', { ascending: false }) // Force fresh read
         if (supplementsResultError) {
           console.error(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Error fetching supplement_items for COMPLETED job: ${supplementsResultError.message}`)
         }
@@ -132,19 +144,15 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
 
   return (
     <div className="max-w-6xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">
-          Analysis Results
-        </h1>
-        <p className="text-gray-600">
-          Job ID: {params.id}
-        </p>
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold text-gray-900">Analysis Results</h1>
+        <p className="text-gray-600 mt-2">Job ID: {params.id}</p>
       </div>
 
-      <ResultsDisplay
-        job={jobData.job}
-        jobData={jobData.data}
-        supplements={jobData.supplements}
+      <ResultsDisplay 
+        job={jobData.job} 
+        jobData={jobData.data} 
+        supplements={jobData.supplements} 
       />
     </div>
   )

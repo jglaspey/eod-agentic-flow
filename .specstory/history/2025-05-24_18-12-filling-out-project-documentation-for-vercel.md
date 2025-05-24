@@ -1421,6 +1421,341 @@ _**User**_
 
 _**Assistant**_
 
+Ah, shoot! You're right. I refactored `src/lib/supabase.ts` to export `getSupabaseClient` as the singleton accessor, but I missed updating a couple of files that were still trying to import the old `createSupabaseClient` function.
+
+My apologies! Let's fix those import errors right now.
+
+**Step 1: Fix Import in `src/app/api/test-complete/[id]/route.ts`**
+
+---
+
+Read file: src/app/api/test-complete/[id]/route.ts
+
+---
+
+```diff
+  import { NextRequest, NextResponse } from 'next/server'
+  import { v4 as uuidv4 } from 'uuid'
+- import { createSupabaseClient } from '@/lib/supabase'
++ import { getSupabaseClient } from '@/lib/supabase'
+  
+  export async function POST(
+    request: NextRequest,
+    { params }: { params: { id: string } }
+  ) {
+-   const supabase = createSupabaseClient()
++   const supabase = getSupabaseClient()
+    const jobId = params.id
+    
+```
+
+---
+
+**Step 2: Fix Import in `src/lib/ai-orchestrator.ts`**
+
+---
+
+Read file: src/lib/ai-orchestrator.ts
+
+---
+
+```diff
+  import { Anthropic } from '@anthropic-ai/sdk'
+  import { PDFProcessor } from './pdf-processor'
+- import { createSupabaseClient } from './supabase'
++ import { getSupabaseClient } from './supabase'
+  import { EstimateData, RoofData, SupplementItem, AIConfig } from '@/types'
+  
+```
+
+```diff
+    private openai: OpenAI | null = null
+    private anthropic: Anthropic | null = null
+-   private supabase = createSupabaseClient()
++   private supabase = getSupabaseClient()
+  
+    constructor() {
+```
+
+---
+
+**Step 3: Commit and Push Fixes**
+
+Now that these import errors are corrected, let's commit and push.
+
+---
+
+```bash
+git add .
+```
+
+```
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation % 
+
+```
+
+---
+
+```bash
+git commit -m "Fix: Correct Supabase client imports for getSupabaseClient"
+```
+
+```
+<orrect Supabase client imports for getSupabaseClient"
+[main 77a7544] Fix: Correct Supabase client imports for getSupabaseClient
+ 3 files changed, 529 insertions(+), 4 deletions(-)
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation %
+```
+
+---
+
+```bash
+git push origin main
+```
+
+```
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation % git push origin main
+Enumerating objects: 25, done.
+Counting objects: 100% (25/25), done.
+Delta compression using up to 10 threads
+Compressing objects: 100% (10/10), done.
+Writing objects: 100% (13/13), 7.24 KiB | 7.24 MiB/s, done.
+Total 13 (delta 8), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (8/8), completed with 8 local objects.
+To https://github.com/jglaspey/eod-agentic-flow.git
+   7fa6177..77a7544  main -> main
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation %
+```
+
+---
+
+Okay, I've corrected the import statements in:
+
+*   `src/app/api/test-complete/[id]/route.ts`
+*   `src/lib/ai-orchestrator.ts`
+
+Both files now correctly import and use `getSupabaseClient()` instead of the old `createSupabaseClient()`.
+
+The changes have been pushed to GitHub. Vercel should start a new deployment. This time, the build error related to the Supabase client import should be resolved.
+
+Please check the Vercel deployment logs again. Hopefully, this clears the build, and we can then focus on any remaining runtime issues if they appear.
+
+---
+
+_**User**_
+
+shoot. are we making progress? i honestly can't tell
+
+
+
+---
+
+_**Assistant**_
+
+Yes, we are making progress, though it can be frustrating when new issues pop up! The "Response.clone: Body has already been consumed" error is a tricky one, especially in serverless environments.
+
+It seems like the Vercel logs are still showing the "Response.clone: Body has already been consumed" error, even after the singleton Supabase client refactor. This suggests the issue might be more nuanced, possibly related to how Vercel handles `fetch` requests or how multiple async operations interact with the Supabase client instance within the lifecycle of a single serverless function invocation.
+
+Let's try a more direct approach to see if we can isolate or mitigate this.
+
+**Strategy: Isolate Supabase Calls in `getJobData`**
+
+In `src/app/results/[id]/page.tsx`, the `getJobData` function makes three `Promise.all` calls to Supabase. While `Promise.all` is efficient, if there's an underlying issue with how the Supabase client (and its `fetch` calls) are handled in quick succession within the Vercel environment, this could be a contributing factor.
+
+I'll change this to make sequential `await` calls instead of `Promise.all`. This is less performant but can help determine if concurrent requests are the source of the "body consumed" error. If this resolves the issue, we can then explore more optimized solutions that are compatible with Vercel's environment.
+
+**Modify `src/app/results/[id]/page.tsx`**
+
+---
+
+```diff
+  
+      try {
++       // Step 1: Fetch the main job record
++       console.log(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Fetching job record...`)
+        const { data: job, error: jobError } = await supabase
+          .from('jobs')
+```
+
+```diff
+        if (job.status === 'failed') {
+          console.warn(`[Client Job ID: ${jobId}] getJobData: Job processing FAILED. Error from DB: ${job.error_message}`)
+-         // Fetch associated job_data if any, to show partial info if available
+-         const { data: jobDataRow } = await supabase.from('job_data').select('*').eq('job_id', jobId).maybeSingle()
++         // Step 2a: Fetch associated job_data for failed job (if any)
++         console.log(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Fetching job_data for FAILED job...`)
++         const { data: jobDataRow, error: jobDataError } = await supabase.from('job_data').select('*').eq('job_id', jobId).maybeSingle()
++         if (jobDataError) {
++           console.warn(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Error fetching job_data for FAILED job: ${jobDataError.message}`)
++         }
+          return {
+            job: job as Job,
+```
+
+```diff
+  
+        if (job.status === 'completed') {
+-         console.log(`[Client Job ID: ${jobId}] getJobData: Job status is COMPLETED. Fetching associated data...`)
+-         const [dataResult, supplementsResult] = await Promise.all([
+-           supabase.from('job_data').select('*').eq('job_id', jobId).maybeSingle(),
+-           supabase.from('supplement_items').select('*').eq('job_id', jobId)
+-         ])
+- 
+-         if (dataResult.error) {
+-           console.error(`[Client Job ID: ${jobId}] getJobData: Error fetching job_data for completed job: ${dataResult.error.message}`)
+-           // Potentially return job with null data or retry depending on desired behavior for this specific error
+-         }
+-         if (supplementsResult.error) {
+-           console.error(`[Client Job ID: ${jobId}] getJobData: Error fetching supplement_items for completed job: ${supplementsResult.error.message}`)
++         console.log(`[Client Job ID: ${jobId}] getJobData: Job status is COMPLETED. Fetching associated data sequentially...`)
++         
++         // Step 2b: Fetch job_data for completed job
++         console.log(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Fetching job_data for COMPLETED job...`)
++         const { data: dataResultData, error: dataResultError } = await supabase.from('job_data').select('*').eq('job_id', jobId).maybeSingle()
++         if (dataResultError) {
++           console.error(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Error fetching job_data for COMPLETED job: ${dataResultError.message}`)
++           // If critical, could retry or return job with null data
++         }
++ 
++         // Step 3: Fetch supplement_items for completed job
++         console.log(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Fetching supplement_items for COMPLETED job...`)
++         const { data: supplementsResultData, error: supplementsResultError } = await supabase.from('supplement_items').select('*').eq('job_id', jobId)
++         if (supplementsResultError) {
++           console.error(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Error fetching supplement_items for COMPLETED job: ${supplementsResultError.message}`)
+          }
+  
+-         if (dataResult.data) {
+-           console.log(`[Client Job ID: ${jobId}] getJobData: Job COMPLETED and all data found.`)
++         if (dataResultData) {
++           console.log(`[Client Job ID: ${jobId}] getJobData: Job COMPLETED and all data found (fetched sequentially).`)
+            return {
+              job: job as Job,
+-             data: dataResult.data as JobData,
+-             supplements: (supplementsResult.data as SupplementItem[]) || []
++             data: dataResultData as JobData,
++             supplements: (supplementsResultData as SupplementItem[]) || []
+            }
+          } else {
+-           console.warn(`[Client Job ID: ${jobId}] getJobData: Job COMPLETED but no job_data found. This might indicate an issue during the final save. Error from job: ${job.error_message}`)
+-           // If it's the last retry, return with what we have (completed job, null data)
++           console.warn(`[Client Job ID: ${jobId}] getJobData: Job COMPLETED but no job_data found (fetched sequentially). Error from job: ${job.error_message}`)
+            if (i === MAX_RETRIES - 1) {
+-             return { job: job as Job, data: null, supplements: [] }
++             return { job: job as Job, data: null, supplements: (supplementsResultData as SupplementItem[]) || [] }
+            }
+-           // Otherwise, continue retrying, hoping data appears.
+          }
+        }
+```
+
+```diff
+      } catch (fetchError: any) {
+        console.error(`[Client Job ID: ${jobId}] getJobData: Unhandled exception during fetch attempt ${i + 1}:`, fetchError)
++       if (fetchError.message && fetchError.message.includes('Body has already been consumed')) {
++         console.error(`[Client Job ID: ${jobId}] getJobData: 'Body already consumed' error caught specifically.`)
++         // Potentially implement a more aggressive backoff or a different client re-initialization strategy here if this persists
++       }
+        if (i === MAX_RETRIES - 1) {
+          console.error(`[Client Job ID: ${jobId}] getJobData: FINAL - Unhandled exception on last retry.`)
+```
+
+---
+
+The key change here is moving from:
+
+```typescript
+const [jobResult, dataResult, supplementsResult] = await Promise.all([
+  supabase.from('jobs').select('*').eq('id', jobId).single(),
+  supabase.from('job_data').select('*').eq('job_id', jobId).maybeSingle(),
+  supabase.from('supplement_items').select('*').eq('job_id', jobId)
+]);
+```
+
+to:
+
+```typescript
+// Step 1: Fetch the main job record
+const { data: job, error: jobError } = await supabase.from('jobs')...;
+// ...then, if needed...
+// Step 2: Fetch job_data
+const { data: dataResultData, error: dataResultError } = await supabase.from('job_data')...;
+// ...then, if needed...
+// Step 3: Fetch supplement_items
+const { data: supplementsResultData, error: supplementsResultError } = await supabase.from('supplement_items')...;
+```
+
+This will make the data fetching slightly slower on the client-side if everything is working, but it's a crucial step for debugging this particular error.
+
+**Commit and Push**
+
+---
+
+```bash
+git add .
+```
+
+```
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation % 
+
+```
+
+---
+
+```bash
+git commit -m "Debug: Refactor getJobData to use sequential awaits for Supabase calls"
+```
+
+```
+<tJobData to use sequential awaits for Supabase calls"
+[main 3f462c0] Debug: Refactor getJobData to use sequential awaits for Supabase calls
+ 1 file changed, 32 insertions(+), 21 deletions(-)
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation %
+```
+
+---
+
+```bash
+git push origin main
+```
+
+```
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation % git push origin main
+Enumerating objects: 13, done.
+Counting objects: 100% (13/13), done.
+Delta compression using up to 10 threads
+Compressing objects: 100% (5/5), done.
+Writing objects: 100% (7/7), 1.24 KiB | 1.24 MiB/s, done.
+Total 7 (delta 3), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (3/3), completed with 3 local objects.
+To https://github.com/jglaspey/eod-agentic-flow.git
+   77a7544..3f462c0  main -> main
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation %
+```
+
+---
+
+Okay, the change to use sequential `await` calls in `getJobData` has been pushed.
+
+This is primarily a debugging step.
+*   **If the "Body has already been consumed" error disappears with this change**, it strongly indicates that the concurrent `fetch` requests (via `Promise.all` to Supabase) were indeed the problem in the Vercel serverless environment.
+*   **If the error persists**, then the root cause is likely deeper, possibly within the Supabase client's internal fetch handling or a more fundamental issue with how state or resources are managed across the lifecycle of the serverless function when making these calls.
+
+Please check the Vercel deployment logs after this new deployment completes. Pay close attention to the logs from `src/app/results/[id]/page.tsx` (they have `[Client Job ID: ...] getJobData:` prefixes). The increased logging and the new specific catch for "Body has already been consumed" should give us more clues.
+
+Let me know what you find! We'll get to the bottom of this.
+
+---
+
+_**User**_
+
+weird it seems like nothing is working. 
+i submit the docs, the button animates for a second, then just goes back to being a button and nothing happens.
+
+
+---
+
+_**Assistant**_
+
 
 
 ---

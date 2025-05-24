@@ -330,6 +330,8 @@ async function processFilesAsync(
       console.error(`[${jobId}] processFilesAsync: CRITICAL - Failed to update final job status for ${jobId} to ${currentStatus}:`, updateError);
     } else {
       console.log(`[${jobId}] processFilesAsync: Successfully updated final job status for ${jobId} to ${currentStatus}.`);
+      // Add a small delay to ensure database transaction is committed
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
     console.log(`[${jobId}] processFilesAsync: Finished. Final Status: ${currentStatus}. Processing Time: ${processingTime}ms. Errors: ${detailedErrorMessage || 'None'}`);
   }

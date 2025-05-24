@@ -1,5 +1,7 @@
 'use client'
 
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Job, JobData, SupplementItem } from '@/types'
 
 interface ResultsDisplayProps {
@@ -9,6 +11,17 @@ interface ResultsDisplayProps {
 }
 
 export default function ResultsDisplay({ job, jobData, supplements }: ResultsDisplayProps) {
+  const router = useRouter()
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true)
+    // Small delay to show the loading state
+    await new Promise(resolve => setTimeout(resolve, 500))
+    router.refresh()
+    setIsRefreshing(false)
+  }
+
   const formatCurrency = (amount: number | undefined) => {
     if (typeof amount !== 'number') return 'N/A'; // Or some other placeholder
     return new Intl.NumberFormat('en-US', {
@@ -49,8 +62,18 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
       <div className="min-h-[400px] flex flex-col items-center justify-center bg-white rounded-lg shadow-md p-6 text-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
         <h2 className="text-xl font-semibold text-gray-700 mb-2">Processing Estimate...</h2>
-        <p className="text-gray-500">Please wait a moment. This page will update automatically when results are ready.</p>
-        <p className="text-sm text-gray-400 mt-4">Job ID: {job.id}</p>
+        <p className="text-gray-500 mb-4">Please wait a moment. This page will update automatically when results are ready.</p>
+        <p className="text-sm text-gray-400 mb-4">Job ID: {job.id}</p>
+        
+        {/* Manual refresh button for stuck processing */}
+        <button
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+          className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-2 px-4 rounded-md transition-colors"
+        >
+          {isRefreshing ? 'Refreshing...' : 'Refresh Status'}
+        </button>
+        <p className="text-xs text-gray-400 mt-2">If processing takes longer than expected, try refreshing</p>
       </div>
     );
   }
@@ -108,34 +131,32 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
 
   return (
     <div className="space-y-6">
-      {/* Job Status */}
+      {/* Status Header */}
       <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold text-gray-900">Processing Status</h2>
-          <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(job.status)}`}>
-            {job.status.charAt(0).toUpperCase() + job.status.slice(1)}
-          </span>
-        </div>
-        
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div>
-            <p className="text-sm text-gray-500">Created</p>
-            <p className="font-medium">{formatDate(job.created_at)}</p>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(job.status)}`}>
+              {job.status}
+            </span>
+            <span className="text-sm text-gray-500">
+              Job ID: {job.id}
+            </span>
           </div>
-          {job.processing_time_ms && (
-            <div>
-              <p className="text-sm text-gray-500">Processing Time</p>
-              <p className="font-medium">{(job.processing_time_ms / 1000).toFixed(1)}s</p>
-            </div>
-          )}
-          <div>
-            <p className="text-sm text-gray-500">Supplements Found</p>
-            <p className="font-medium">{supplements.length}</p>
-          </div>
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="bg-gray-100 hover:bg-gray-200 disabled:bg-gray-50 text-gray-700 font-medium py-1 px-3 rounded-md transition-colors text-sm"
+          >
+            {isRefreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
         </div>
+        {job.processing_time_ms && (
+          <p className="text-sm text-gray-500 mt-2">
+            Processing time: {(job.processing_time_ms / 1000).toFixed(1)}s
+          </p>
+        )}
       </div>
 
-      {/* Extracted Data */}
       {jobData && (
         <div className="bg-white rounded-lg shadow-md p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Extracted Information</h2>
@@ -226,15 +247,9 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
 
       {/* Supplement Items */}
       <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">
-          Supplement Items ({supplements.length})
-        </h2>
-
-        {supplements.length === 0 ? (
-          <div className="text-center py-8">
-            <p className="text-gray-500">No supplement items identified</p>
-          </div>
-        ) : (
+        <h2 className="text-xl font-semibold text-gray-900 mb-4">Recommended Supplement Items</h2>
+        
+        {supplements && supplements.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -257,26 +272,23 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {supplements.map((item) => (
-                  <tr key={item.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="font-medium text-gray-900">{item.line_item}</div>
-                      {item.calculation_details && (
-                        <div className="text-sm text-gray-500">{item.calculation_details}</div>
-                      )}
+                {supplements.map((item, index) => (
+                  <tr key={index}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {item.line_item}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {item.xactimate_code || '-'}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {item.xactimate_code || 'N/A'}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {item.quantity} {item.unit}
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="text-sm text-gray-900">{item.reason}</div>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {item.reason}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`text-sm font-medium ${getConfidenceColor(item.confidence_score)}`}>
-                        {(item.confidence_score * 100).toFixed(0)}%
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <span className={`font-medium ${getConfidenceColor(item.confidence_score || 0)}`}>
+                        {item.confidence_score ? `${(item.confidence_score * 100).toFixed(0)}%` : 'N/A'}
                       </span>
                     </td>
                   </tr>
@@ -284,10 +296,20 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
               </tbody>
             </table>
           </div>
+        ) : (
+          <div className="text-center py-8">
+            <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+              <path d="M8 14v20c0 4.418 7.163 8 16 8 1.381 0 2.721-.087 4-.252M8 14c0 4.418 7.163 8 16 8s16-3.582 16-8M8 14c0-4.418 7.163-8 16-8s16 3.582 16 8m0 0v14m0-4c0 4.418-7.163 8-16 8S8 28.418 8 24m32 10v6m0 0v6m0-6h6m-6 0h-6" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <h3 className="mt-2 text-sm font-medium text-gray-900">No supplement items identified</h3>
+            <p className="mt-1 text-sm text-gray-500">
+              The analysis did not identify any missing items or discrepancies requiring supplements.
+            </p>
+          </div>
         )}
       </div>
 
-      {/* Actions */}
+      {/* Export Options */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <h2 className="text-xl font-semibold text-gray-900 mb-4">Export Options</h2>
         <div className="flex space-x-4">
