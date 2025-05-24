@@ -47,6 +47,19 @@ export interface AgentConfig {
   tools: string[]; // List of tool names this agent can use
 }
 
+// This was previously in @/types, ensure it's compatible or adjust
+export interface AIConfig {
+  id?: string;
+  step_name: string;
+  prompt: string;
+  model_provider: 'openai' | 'anthropic';
+  model_name: string;
+  temperature?: number;
+  max_tokens?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface Tool {
   name: string;
   description: string;
@@ -76,14 +89,14 @@ export interface AgentExecutionPlan {
 
 // Specific data types for our roofing domain
 export interface EstimateFieldExtractions {
-  propertyAddress: ExtractedField<string>;
-  claimNumber: ExtractedField<string>;
-  insuranceCarrier: ExtractedField<string>;
+  propertyAddress: ExtractedField<string | null>;
+  claimNumber: ExtractedField<string | null>;
+  insuranceCarrier: ExtractedField<string | null>;
   dateOfLoss: ExtractedField<Date | null>;
-  totalRCV: ExtractedField<number>;
-  totalACV: ExtractedField<number>;
-  deductible: ExtractedField<number>;
-  lineItems: ExtractedField<any[]>;
+  totalRCV: ExtractedField<number | null>;
+  totalACV: ExtractedField<number | null>;
+  deductible: ExtractedField<number | null>;
+  lineItems: ExtractedField<any[]>; // Assuming line items are arrays of objects
 }
 
 export interface RoofMeasurements {
@@ -144,4 +157,74 @@ export interface AgentLog {
   message: string;
   data?: any;
   duration?: number;
-} 
+}
+
+// Represents a line item extracted from an estimate
+export interface EstimateLineItem {
+  description: string | null;
+  quantity: string; // Keep as string for flexibility, parse as needed
+  unit: string | null;
+  unitPrice?: number | null;
+  totalPrice?: number | null;
+  category?: string | null; // e.g., Roofing, Siding, Gutters
+  notes?: string | null;
+  isUserDefined?: boolean; // True if manually added/edited by user
+  confidence?: number; // Confidence in this specific line item extraction
+  source?: 'text' | 'vision' | 'hybrid';
+}
+
+// For EstimateExtractorAgent
+export interface EstimateFieldExtractions {
+  propertyAddress: ExtractedField<string | null>;
+  claimNumber: ExtractedField<string | null>;
+  policyNumber?: ExtractedField<string | null>; // Optional
+  carrierName?: ExtractedField<string | null>; // Optional
+  insuredName?: ExtractedField<string | null>; // Optional
+  dateOfLoss: ExtractedField<Date | string | null>; // Allow string for initial parsing
+  rcv: ExtractedField<number | null>;
+  acv?: ExtractedField<number | null>; // Optional
+  deductible?: ExtractedField<number | null>; // Optional
+  lineItems: ExtractedField<EstimateLineItem[]>;
+  // Add other relevant summary fields if needed (e.g., total tax, overhead & profit)
+}
+
+// For RoofReportExtractorAgent
+export interface RoofMeasurements {
+  totalRoofArea: ExtractedField<number | null>; // Typically in squares (1 sq = 100 sq ft)
+  eaveLength: ExtractedField<number | null>; // Linear feet
+  rakeLength: ExtractedField<number | null>; // Linear feet
+  ridgeHipLength: ExtractedField<number | null>; // Linear feet (ridges + hips)
+  valleyLength: ExtractedField<number | null>; // Linear feet
+  stories: ExtractedField<number | null>; // Number of stories (e.g., 1, 2)
+  pitch: ExtractedField<string | null>; // e.g., "6/12", "8/12"
+  facets?: ExtractedField<number | null>; // Number of distinct roof facets/planes
+  // Consider adding fields for penetrations, waste factor if extractable
+}
+
+// For DiscrepancyAnalyzerAgent - used in SupplementRules
+export interface SupplementRecommendation {
+  id: string; // Unique ID for this recommendation
+  description: string;
+  quantity: ExtractedField<number>; // Quantity needed
+  unit: string; // e.g., LF, SF, SQ, EA
+  reason: string; // Why this item is recommended
+  confidence: number; // Confidence in this recommendation
+  xactimateCode?: string; // Optional Xactimate code
+  category: 'missing' | 'quantity_mismatch' | 'upgrade' | 'code_requirement';
+  priority: 'low' | 'medium' | 'high' | 'critical';
+  supporting_evidence?: string[]; // Links or references to support the recommendation
+  // Potential future fields: price_impact, notes for user
+}
+
+// For SupplementGeneratorAgent - the formatted output of a supplement item
+export interface GeneratedSupplementItem {
+  id: string; // Can be same as recommendation ID or new
+  xactimateCode: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  justification: string; // Well-formatted reason, potentially LLM-enhanced
+  sourceRecommendationId?: string; // ID of the SupplementRecommendation it came from
+  confidence: number; // Confidence in the final generated text and values
+  // Optional: pricing info, notes for adjuster
+}
