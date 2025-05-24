@@ -24,6 +24,8 @@ async function getJobData(jobId: string) {
     console.log(`[Client Job ID: ${jobId}] getJobData: Attempt ${i + 1}/${MAX_RETRIES} to fetch job details.`)
 
     try {
+      // Step 1: Fetch the main job record
+      console.log(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Fetching job record...`)
       const { data: job, error: jobError } = await supabase
         .from('jobs')
         .select('*')
@@ -43,8 +45,12 @@ async function getJobData(jobId: string) {
 
       if (job.status === 'failed') {
         console.warn(`[Client Job ID: ${jobId}] getJobData: Job processing FAILED. Error from DB: ${job.error_message}`)
-        // Fetch associated job_data if any, to show partial info if available
-        const { data: jobDataRow } = await supabase.from('job_data').select('*').eq('job_id', jobId).maybeSingle()
+        // Step 2a: Fetch associated job_data for failed job (if any)
+        console.log(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Fetching job_data for FAILED job...`)
+        const { data: jobDataRow, error: jobDataError } = await supabase.from('job_data').select('*').eq('job_id', jobId).maybeSingle()
+        if (jobDataError) {
+          console.warn(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Error fetching job_data for FAILED job: ${jobDataError.message}`)
+        }
         return {
           job: job as Job,
           data: jobDataRow as JobData | null,
@@ -53,34 +59,35 @@ async function getJobData(jobId: string) {
       }
 
       if (job.status === 'completed') {
-        console.log(`[Client Job ID: ${jobId}] getJobData: Job status is COMPLETED. Fetching associated data...`)
-        const [dataResult, supplementsResult] = await Promise.all([
-          supabase.from('job_data').select('*').eq('job_id', jobId).maybeSingle(),
-          supabase.from('supplement_items').select('*').eq('job_id', jobId)
-        ])
-
-        if (dataResult.error) {
-          console.error(`[Client Job ID: ${jobId}] getJobData: Error fetching job_data for completed job: ${dataResult.error.message}`)
-          // Potentially return job with null data or retry depending on desired behavior for this specific error
-        }
-        if (supplementsResult.error) {
-          console.error(`[Client Job ID: ${jobId}] getJobData: Error fetching supplement_items for completed job: ${supplementsResult.error.message}`)
+        console.log(`[Client Job ID: ${jobId}] getJobData: Job status is COMPLETED. Fetching associated data sequentially...`)
+        
+        // Step 2b: Fetch job_data for completed job
+        console.log(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Fetching job_data for COMPLETED job...`)
+        const { data: dataResultData, error: dataResultError } = await supabase.from('job_data').select('*').eq('job_id', jobId).maybeSingle()
+        if (dataResultError) {
+          console.error(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Error fetching job_data for COMPLETED job: ${dataResultError.message}`)
+          // If critical, could retry or return job with null data
         }
 
-        if (dataResult.data) {
-          console.log(`[Client Job ID: ${jobId}] getJobData: Job COMPLETED and all data found.`)
+        // Step 3: Fetch supplement_items for completed job
+        console.log(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Fetching supplement_items for COMPLETED job...`)
+        const { data: supplementsResultData, error: supplementsResultError } = await supabase.from('supplement_items').select('*').eq('job_id', jobId)
+        if (supplementsResultError) {
+          console.error(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Error fetching supplement_items for COMPLETED job: ${supplementsResultError.message}`)
+        }
+
+        if (dataResultData) {
+          console.log(`[Client Job ID: ${jobId}] getJobData: Job COMPLETED and all data found (fetched sequentially).`)
           return {
             job: job as Job,
-            data: dataResult.data as JobData,
-            supplements: (supplementsResult.data as SupplementItem[]) || []
+            data: dataResultData as JobData,
+            supplements: (supplementsResultData as SupplementItem[]) || []
           }
         } else {
-          console.warn(`[Client Job ID: ${jobId}] getJobData: Job COMPLETED but no job_data found. This might indicate an issue during the final save. Error from job: ${job.error_message}`)
-          // If it's the last retry, return with what we have (completed job, null data)
+          console.warn(`[Client Job ID: ${jobId}] getJobData: Job COMPLETED but no job_data found (fetched sequentially). Error from job: ${job.error_message}`)
           if (i === MAX_RETRIES - 1) {
-            return { job: job as Job, data: null, supplements: [] }
+            return { job: job as Job, data: null, supplements: (supplementsResultData as SupplementItem[]) || [] }
           }
-          // Otherwise, continue retrying, hoping data appears.
         }
       }
 
@@ -100,6 +107,10 @@ async function getJobData(jobId: string) {
 
     } catch (fetchError: any) {
       console.error(`[Client Job ID: ${jobId}] getJobData: Unhandled exception during fetch attempt ${i + 1}:`, fetchError)
+      if (fetchError.message && fetchError.message.includes('Body has already been consumed')) {
+        console.error(`[Client Job ID: ${jobId}] getJobData: 'Body already consumed' error caught specifically.`)
+        // Potentially implement a more aggressive backoff or a different client re-initialization strategy here if this persists
+      }
       if (i === MAX_RETRIES - 1) {
         console.error(`[Client Job ID: ${jobId}] getJobData: FINAL - Unhandled exception on last retry.`)
         return null // Leads to notFound()
