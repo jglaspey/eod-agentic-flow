@@ -43,6 +43,14 @@ CREATE TABLE supplement_items (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Job reports table for storing markdown reports
+CREATE TABLE job_reports (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  job_id UUID REFERENCES jobs(id) ON DELETE CASCADE,
+  report_md TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- AI processing config table
 CREATE TABLE ai_config (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -71,15 +79,18 @@ CREATE INDEX idx_jobs_created_at ON jobs(created_at);
 CREATE INDEX idx_job_data_job_id ON job_data(job_id);
 CREATE INDEX idx_supplement_items_job_id ON supplement_items(job_id);
 CREATE INDEX idx_ai_config_step_name ON ai_config(step_name);
+CREATE INDEX idx_job_reports_job_id ON job_reports(job_id);
 
 -- Enable Row Level Security
 ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE job_data ENABLE ROW LEVEL SECURITY;
 ALTER TABLE supplement_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ai_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE job_reports ENABLE ROW LEVEL SECURITY;
 
 -- Create policies (for now, allow all access since this is single-tenant MVP)
 CREATE POLICY "Enable all access for jobs" ON jobs FOR ALL USING (true);
 CREATE POLICY "Enable all access for job_data" ON job_data FOR ALL USING (true);
 CREATE POLICY "Enable all access for supplement_items" ON supplement_items FOR ALL USING (true);
 CREATE POLICY "Enable all access for ai_config" ON ai_config FOR ALL USING (true);
+CREATE POLICY "Enable all access for job_reports" ON job_reports FOR ALL USING (true);

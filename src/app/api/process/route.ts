@@ -3,7 +3,8 @@ import { v4 as uuidv4 } from 'uuid'
 import { getSupabaseClient } from '@/lib/supabase'
 import { AIOrchestrator } from '@/lib/ai-orchestrator'
 import { logStreamer } from '@/lib/log-streamer'
-import { SupplementItem } from '@/types'
+import { SupplementItem, EstimateData, RoofData } from '@/types'
+import { generateAndSaveReport } from '@/lib/report-generator'
 
 export async function POST(request: NextRequest) {
   try {
@@ -168,6 +169,9 @@ async function processFilesAsync(
   let currentStatus = 'processing';
   let detailedErrorMessage: string | null = null;
   let processingStep = 'initialization';
+  let estimateData: EstimateData | null = null;
+  let roofData: RoofData | null = null;
+  let supplementItems: SupplementItem[] = [];
 
   try {
     processingStep = 'buffer_conversion';
@@ -183,9 +187,6 @@ async function processFilesAsync(
     logStreamer.logStep(jobId, processingStep, 'AIOrchestrator initialized')
     console.log(`[${jobId}] processFilesAsync: AIOrchestrator initialized.`);
 
-    let estimateData = null;
-    let roofData = null;
-    let supplementItems: SupplementItem[] = [];
 
     try {
       processingStep = 'estimate_extraction';
@@ -329,7 +330,13 @@ async function processFilesAsync(
     const processingTime = Date.now() - startTime;
     console.log(`[${jobId}] processFilesAsync: Finally block. Status: ${currentStatus}, Error: ${detailedErrorMessage}`);
     logStreamer.logStep(jobId, processingStep, 'Finalizing job')
-    
+
+    try {
+      await generateAndSaveReport(jobId, estimateData, roofData, supplementItems, currentStatus, detailedErrorMessage)
+    } catch (reportErr) {
+      console.error(`[${jobId}] processFilesAsync: Failed to generate report:`, reportErr)
+    }
+
     // Always send job-completed event before updating database
     logStreamer.logStep(jobId, 'job-completed', `Job ${currentStatus}`)
     

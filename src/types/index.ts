@@ -37,6 +37,13 @@ export interface SupplementItem {
   calculation_details?: string
 }
 
+export interface JobReport {
+  id: string
+  job_id: string
+  report_md: string
+  created_at: string
+}
+
 export interface AIConfig {
   id: string
   step_name: string
