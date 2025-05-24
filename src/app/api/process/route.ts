@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
-import { createSupabaseClient } from '@/lib/supabase'
+import { getSupabaseClient } from '@/lib/supabase'
 import { AIOrchestrator } from '@/lib/ai-orchestrator'
 import { SupplementItem } from '@/types'
 
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     const startTime = Date.now()
 
     // Initialize Supabase client
-    const supabase = createSupabaseClient()
+    const supabase = getSupabaseClient()
 
     // Test database connection
     const { data: testData, error: testError } = await supabase
@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
 }
 
 async function completeTestJob(jobId: string) {
-  const supabase = createSupabaseClient()
+  const supabase = getSupabaseClient()
   
   try {
     // Add test job data
@@ -162,7 +162,7 @@ async function processFilesAsync(
   startTime: number
 ) {
   console.log(`[${jobId}] processFilesAsync started.`);
-  const supabase = createSupabaseClient();
+  const supabase = getSupabaseClient();
   let status = 'processing';
   let errorMessage: string | null = null;
 

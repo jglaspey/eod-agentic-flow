@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { createSupabaseClient } from '@/lib/supabase'
+import { getSupabaseClient } from '@/lib/supabase'
 import { Job, JobData, SupplementItem } from '@/types'
 import ResultsDisplay from '@/components/ResultsDisplay'
 
@@ -10,7 +10,7 @@ interface ResultsPageProps {
 }
 
 async function getJobData(jobId: string) {
-  const supabase = createSupabaseClient()
+  const supabase = getSupabaseClient()
   const MAX_RETRIES = 5 // Retry up to 5 times
   const RETRY_DELAY_MS = 3000 // Wait 3 seconds between retries
 
