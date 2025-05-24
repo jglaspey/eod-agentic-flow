@@ -1,26 +1,28 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-export function createSupabaseClient() {
-  return createClient(supabaseUrl, supabaseKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false
-    }
-  })
-}
+let _supabaseInstance: SupabaseClient | null = null
 
-// Create a single instance for server-side operations
-let _supabase: SupabaseClient | null = null
-
-export function getSupabaseClient() {
-  if (!_supabase) {
-    _supabase = createSupabaseClient()
+export function getSupabaseClient(): SupabaseClient {
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error('Supabase URL or Key is not defined. Check environment variables.');
   }
-  return _supabase
+  if (!_supabaseInstance) {
+    console.log('Creating new Supabase client instance');
+    _supabaseInstance = createClient(supabaseUrl, supabaseKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+      // Add a custom fetch to potentially debug or control retries if needed later
+      // global: { fetch: customFetch } 
+    });
+  }
+  return _supabaseInstance;
 }
 
-export const supabase = createSupabaseClient()
+// No longer exporting a pre-initialized client
+// export const supabase = createSupabaseClient()

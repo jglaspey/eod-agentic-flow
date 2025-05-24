@@ -11,79 +11,105 @@ interface ResultsPageProps {
 
 async function getJobData(jobId: string) {
   const supabase = getSupabaseClient()
-  const MAX_RETRIES = 5 // Retry up to 5 times
-  const RETRY_DELAY_MS = 3000 // Wait 3 seconds between retries
+  const MAX_RETRIES = 7 // Increased retries
+  const RETRY_DELAY_MS = 4000 // Increased delay
+
+  console.log(`[Client Job ID: ${jobId}] getJobData: Initializing fetch. Retries: ${MAX_RETRIES}, Delay: ${RETRY_DELAY_MS}ms`)
 
   for (let i = 0; i < MAX_RETRIES; i++) {
     if (i > 0) {
+      console.log(`[Client Job ID: ${jobId}] getJobData: Waiting ${RETRY_DELAY_MS}ms before retry ${i + 1}`)
       await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS))
-      console.log(`[Client Job ID: ${jobId}] Retrying job data fetch (${i + 1}/${MAX_RETRIES})...`)
     }
+    console.log(`[Client Job ID: ${jobId}] getJobData: Attempt ${i + 1}/${MAX_RETRIES} to fetch job details.`)
 
-    const [jobResult, dataResult, supplementsResult] = await Promise.all([
-      supabase.from('jobs').select('*').eq('id', jobId).single(), // Job ID must exist
-      supabase.from('job_data').select('*').eq('job_id', jobId).maybeSingle(), // Data might not exist yet
-      supabase.from('supplement_items').select('*').eq('job_id', jobId) // Supplements might be empty
-    ])
+    try {
+      const { data: job, error: jobError } = await supabase
+        .from('jobs')
+        .select('*')
+        .eq('id', jobId)
+        .single()
 
-    console.log(`[Client Job ID: ${jobId}] Attempt ${i + 1}: Job status: ${jobResult.data?.status}, Job error: ${jobResult.error?.message}, Data found: ${!!dataResult.data}, Data error: ${dataResult.error?.message}, Supplements found: ${supplementsResult.data?.length}`);
-
-    if (jobResult.error || !jobResult.data) { // Critical error fetching job itself or job doesn't exist
-      console.error(`[Client Job ID: ${jobId}] Job record fetch error or job not found (attempt ${i + 1}):`, jobResult.error?.message)
-      if (i === MAX_RETRIES - 1) {
-        console.error(`[Client Job ID: ${jobId}] FINAL: Job record not found or unfetchable after ${MAX_RETRIES} retries.`);
-        return null; // Will lead to notFound()
-      }
-      continue // Continue to next retry
-    }
-
-    // At this point, jobResult.data is guaranteed to exist.
-    const currentJob = jobResult.data as Job;
-
-    if (currentJob.status === 'failed') {
-      console.warn(`[Client Job ID: ${jobId}] Job processing FAILED. Error: ${currentJob.error_message}`);
-      return {
-        job: currentJob,
-        data: dataResult.data as JobData | null, 
-        supplements: supplementsResult.data as SupplementItem[] || []
-      }
-    }
-
-    if (currentJob.status === 'completed') {
-      if (dataResult.data) {
-        console.log(`[Client Job ID: ${jobId}] Job COMPLETED and data found. Proceeding with display.`);
-        return {
-          job: currentJob,
-          data: dataResult.data as JobData,
-          supplements: supplementsResult.data as SupplementItem[] || []
+      if (jobError || !job) {
+        console.error(`[Client Job ID: ${jobId}] getJobData: Error fetching job record or job not found (Attempt ${i + 1}). Error: ${jobError?.message}`)
+        if (i === MAX_RETRIES - 1) {
+          console.error(`[Client Job ID: ${jobId}] getJobData: FINAL - Job record not found or unfetchable after ${MAX_RETRIES} retries.`)
+          return null // Leads to notFound()
         }
-      } else {
-        // This is an edge case: job is 'completed' but no job_data. This implies an error during data saving on the backend.
-        console.error(`[Client Job ID: ${jobId}] Job COMPLETED but no job_data found. Error on job: ${currentJob.error_message}`);
-        // We'll let it fall through to the retry logic for now, hoping data appears or job status changes to failed on a later retry.
-        // If it's the last retry, it will eventually return the 'completed' job with null data.
+        continue // Next retry
       }
-    }
 
-    // If job is still 'processing'
-    if (currentJob.status === 'processing') {
-      // If it's the last retry and still processing, return the current state to display a "processing" message
-      if (i === MAX_RETRIES - 1) {
-        console.log(`[Client Job ID: ${jobId}] FINAL: Job still PROCESSING after ${MAX_RETRIES} retries. Returning current state.`);
+      console.log(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Job record found. Status: ${job.status}, Error Message: ${job.error_message}`)
+
+      if (job.status === 'failed') {
+        console.warn(`[Client Job ID: ${jobId}] getJobData: Job processing FAILED. Error from DB: ${job.error_message}`)
+        // Fetch associated job_data if any, to show partial info if available
+        const { data: jobDataRow } = await supabase.from('job_data').select('*').eq('job_id', jobId).maybeSingle()
         return {
-          job: currentJob,
-          data: dataResult.data as JobData | null,
-          supplements: supplementsResult.data as SupplementItem[] || []
-        };
+          job: job as Job,
+          data: jobDataRow as JobData | null,
+          supplements: [] // Supplements might not exist for a failed job
+        }
       }
-      // Otherwise, log and continue retrying
-      console.log(`[Client Job ID: ${jobId}] Job status: PROCESSING. Data found: ${!!dataResult.data}. Waiting...`)
+
+      if (job.status === 'completed') {
+        console.log(`[Client Job ID: ${jobId}] getJobData: Job status is COMPLETED. Fetching associated data...`)
+        const [dataResult, supplementsResult] = await Promise.all([
+          supabase.from('job_data').select('*').eq('job_id', jobId).maybeSingle(),
+          supabase.from('supplement_items').select('*').eq('job_id', jobId)
+        ])
+
+        if (dataResult.error) {
+          console.error(`[Client Job ID: ${jobId}] getJobData: Error fetching job_data for completed job: ${dataResult.error.message}`)
+          // Potentially return job with null data or retry depending on desired behavior for this specific error
+        }
+        if (supplementsResult.error) {
+          console.error(`[Client Job ID: ${jobId}] getJobData: Error fetching supplement_items for completed job: ${supplementsResult.error.message}`)
+        }
+
+        if (dataResult.data) {
+          console.log(`[Client Job ID: ${jobId}] getJobData: Job COMPLETED and all data found.`)
+          return {
+            job: job as Job,
+            data: dataResult.data as JobData,
+            supplements: (supplementsResult.data as SupplementItem[]) || []
+          }
+        } else {
+          console.warn(`[Client Job ID: ${jobId}] getJobData: Job COMPLETED but no job_data found. This might indicate an issue during the final save. Error from job: ${job.error_message}`)
+          // If it's the last retry, return with what we have (completed job, null data)
+          if (i === MAX_RETRIES - 1) {
+            return { job: job as Job, data: null, supplements: [] }
+          }
+          // Otherwise, continue retrying, hoping data appears.
+        }
+      }
+
+      // If job is still 'processing'
+      if (job.status === 'processing') {
+        if (i === MAX_RETRIES - 1) {
+          console.log(`[Client Job ID: ${jobId}] getJobData: FINAL - Job still PROCESSING after ${MAX_RETRIES} retries. Returning current state.`)
+          const { data: partialData } = await supabase.from('job_data').select('*').eq('job_id', jobId).maybeSingle()
+          return {
+            job: job as Job,
+            data: partialData as JobData | null,
+            supplements: []
+          }
+        }
+        console.log(`[Client Job ID: ${jobId}] getJobData: Job status: PROCESSING. Waiting and retrying...`)
+      }
+
+    } catch (fetchError: any) {
+      console.error(`[Client Job ID: ${jobId}] getJobData: Unhandled exception during fetch attempt ${i + 1}:`, fetchError)
+      if (i === MAX_RETRIES - 1) {
+        console.error(`[Client Job ID: ${jobId}] getJobData: FINAL - Unhandled exception on last retry.`)
+        return null // Leads to notFound()
+      }
+      // Continue to next retry if an unexpected error occurs during a fetch attempt
     }
   }
 
-  // If loop finishes without returning (should ideally be caught by MAX_RETRIES - 1 conditions above)
-  console.error(`[Client Job ID: ${jobId}] UNEXPECTED: Exited retry loop without returning a result. This should not happen.`);
-  return null; // Fallback, will lead to notFound()
+  console.error(`[Client Job ID: ${jobId}] getJobData: Exited retry loop unexpectedly. This should not happen.`)
+  return null // Fallback
 }
 
 export default async function ResultsPage({ params }: ResultsPageProps) {
