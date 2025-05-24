@@ -297,8 +297,7 @@ async function processFilesAsync(
     
     currentStatus = detailedErrorMessage ? 'failed' : 'completed';
     console.log(`[${jobId}] processFilesAsync: Determined final status: ${currentStatus} (Errors: ${detailedErrorMessage})`);
-    logStreamer.logStep(jobId, 'job-completed', `Job ${currentStatus}`)
-
+    
   } catch (e: any) {
     processingStep = 'unhandled_exception_block';
     console.error(`[${jobId}] processFilesAsync: UNHANDLED error in main try block at step ${processingStep}:`, e);
@@ -330,6 +329,10 @@ async function processFilesAsync(
     const processingTime = Date.now() - startTime;
     console.log(`[${jobId}] processFilesAsync: Finally block. Status: ${currentStatus}, Error: ${detailedErrorMessage}`);
     logStreamer.logStep(jobId, processingStep, 'Finalizing job')
+    
+    // Always send job-completed event before updating database
+    logStreamer.logStep(jobId, 'job-completed', `Job ${currentStatus}`)
+    
     const { error: updateError } = await supabase
       .from('jobs')
       .update({
@@ -341,10 +344,12 @@ async function processFilesAsync(
 
     if (updateError) {
       console.error(`[${jobId}] processFilesAsync: CRITICAL - Failed to update final job status for ${jobId} to ${currentStatus}:`, updateError);
+      // Still try to send the completion event even if DB update fails
+      logStreamer.logError(jobId, 'job-update-failed', `Failed to update job status: ${updateError.message}`)
     } else {
       console.log(`[${jobId}] processFilesAsync: Successfully updated final job status for ${jobId} to ${currentStatus}.`);
       // Add a small delay to ensure database transaction is committed
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
     console.log(`[${jobId}] processFilesAsync: Finished. Final Status: ${currentStatus}. Processing Time: ${processingTime}ms. Errors: ${detailedErrorMessage || 'None'}`);
   }

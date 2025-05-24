@@ -14,8 +14,8 @@ interface ResultsPageProps {
 
 async function getJobData(jobId: string) {
   const supabase = getSupabaseClient()
-  const MAX_RETRIES = 7 // Increased retries
-  const RETRY_DELAY_MS = 4000 // Increased delay
+  const MAX_RETRIES = 10 // Increased retries for Vercel
+  const RETRY_DELAY_MS = 5000 // Increased delay for database replication
 
   console.log(`[Client Job ID: ${jobId}] getJobData: Initializing fetch. Retries: ${MAX_RETRIES}, Delay: ${RETRY_DELAY_MS}ms`)
 
@@ -66,6 +66,12 @@ async function getJobData(jobId: string) {
       if (job.status === 'completed') {
         console.log(`[Client Job ID: ${jobId}] getJobData: Job status is COMPLETED. Fetching associated data sequentially...`)
         
+        // Add a small delay to ensure database replication on Vercel
+        if (i === 0) {
+          console.log(`[Client Job ID: ${jobId}] getJobData: First attempt on completed job, waiting for DB replication...`)
+          await new Promise(resolve => setTimeout(resolve, 2000))
+        }
+        
         // Step 2b: Fetch job_data for completed job with cache busting
         console.log(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Fetching job_data for COMPLETED job...`)
         const { data: dataResultData, error: dataResultError } = await supabase
@@ -100,9 +106,12 @@ async function getJobData(jobId: string) {
           }
         } else {
           console.warn(`[Client Job ID: ${jobId}] getJobData: Job COMPLETED but no job_data found (fetched sequentially). Error from job: ${job.error_message}`)
-          if (i === MAX_RETRIES - 1) {
-            return { job: job as Job, data: null, supplements: (supplementsResultData as SupplementItem[]) || [] }
+          // On Vercel, data might take longer to replicate, so retry more aggressively
+          if (i < MAX_RETRIES - 1) {
+            console.log(`[Client Job ID: ${jobId}] getJobData: Retrying due to missing job_data on completed job...`)
+            continue
           }
+          return { job: job as Job, data: null, supplements: (supplementsResultData as SupplementItem[]) || [] }
         }
       }
 
@@ -146,17 +155,33 @@ export default function ResultsPage({ params }: ResultsPageProps) {
   } | null>(null)
   const [isProcessing, setIsProcessing] = useState(true)
   const [showLogs, setShowLogs] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     getJobData(params.id).then(data => {
       if (!data) {
+        setError('Job not found')
         setIsProcessing(false)
         return
       }
       setJobData(data)
       setIsProcessing(data.job.status === 'processing')
+    }).catch(err => {
+      console.error('Error loading job data:', err)
+      setError('Failed to load job data')
+      setIsProcessing(false)
     })
   }, [params.id])
+
+  if (error) {
+    return (
+      <div className="max-w-6xl mx-auto p-4">
+        <div className="bg-red-50 border border-red-200 rounded-md p-4">
+          <p className="text-red-800">{error}</p>
+        </div>
+      </div>
+    )
+  }
 
   if (!jobData) {
     return <div className="p-4">Loading...</div>
@@ -170,17 +195,24 @@ export default function ResultsPage({ params }: ResultsPageProps) {
       </div>
       {isProcessing ? (
         <LogTerminal jobId={params.id} onComplete={async () => {
+          // Add a delay before fetching to ensure database replication on Vercel
+          console.log('Job completed, waiting for database replication...')
+          await new Promise(resolve => setTimeout(resolve, 3000))
+          
           const fresh = await getJobData(params.id)
           if (fresh) {
             setJobData(fresh)
             setIsProcessing(false)
             setShowLogs(false)
+          } else {
+            setError('Failed to load completed job data')
+            setIsProcessing(false)
           }
         }} />
       ) : (
         <>
           <button
-            className="mb-4 px-3 py-1 rounded bg-gray-200"
+            className="mb-4 px-3 py-1 rounded bg-gray-200 hover:bg-gray-300 transition-colors"
             onClick={() => setShowLogs(!showLogs)}
           >
             {showLogs ? 'Hide' : 'Show'} Processing Logs
