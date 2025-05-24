@@ -900,3 +900,528 @@ I'll enhance the error handling and logging in `src/app/api/process/route.ts` to
 
 ---
 
+```diff
+    startTime: number
+  ) {
+-   console.log(`[${jobId}] processFilesAsync started.`);
++   console.log(`[${jobId}] processFilesAsync: Started.`);
+    const supabase = getSupabaseClient();
+-   let status = 'processing';
+-   let errorMessage: string | null = null;
++   let currentStatus = 'processing';
++   let detailedErrorMessage: string | null = null;
++   let processingStep = 'initialization';
+  
+    try {
+-     console.log(`[${jobId}] Converting files to buffers...`);
++     processingStep = 'buffer_conversion';
++     console.log(`[${jobId}] processFilesAsync: Converting files to buffers...`);
+      const estimateBuffer = Buffer.from(await estimateFile.arrayBuffer());
+      const roofReportBuffer = Buffer.from(await roofReportFile.arrayBuffer());
+-     console.log(`[${jobId}] File buffers created.`);
++     console.log(`[${jobId}] processFilesAsync: File buffers created.`);
+  
+-     console.log(`[${jobId}] Initializing AIOrchestrator...`);
++     processingStep = 'ai_orchestrator_init';
++     console.log(`[${jobId}] processFilesAsync: Initializing AIOrchestrator...`);
+      const orchestrator = new AIOrchestrator();
+-     console.log(`[${jobId}] AIOrchestrator initialized.`);
++     console.log(`[${jobId}] processFilesAsync: AIOrchestrator initialized.`);
+  
+      let estimateData = null;
+      let roofData = null;
+-     let analysis = null;
+      let supplementItems: SupplementItem[] = [];
+  
+      try {
+-       console.log(`[${jobId}] Attempting to extract estimate data...`);
++       processingStep = 'estimate_extraction';
++       console.log(`[${jobId}] processFilesAsync: Attempting to extract estimate data...`);
+        estimateData = await orchestrator.extractEstimateData(estimateBuffer);
+-       console.log(`[${jobId}] Estimate data extraction successful.`);
++       console.log(`[${jobId}] processFilesAsync: Estimate data extraction successful:`, estimateData);
+      } catch (e: any) {
+-       console.error(`[${jobId}] Error extracting estimate data:`, e.message);
+-       errorMessage = (errorMessage ? errorMessage + '; ' : '') + `Estimate extraction failed: ${e.message}`;
++       console.error(`[${jobId}] processFilesAsync: Error extracting estimate data at step ${processingStep}:`, e);
++       detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + '; ' : '') + `Estimate extraction failed: ${e.message}`;
+      }
+  
+      try {
+-       console.log(`[${jobId}] Attempting to extract roof data...`);
++       processingStep = 'roof_report_extraction';
++       console.log(`[${jobId}] processFilesAsync: Attempting to extract roof data...`);
+        roofData = await orchestrator.extractRoofData(roofReportBuffer);
+-       console.log(`[${jobId}] Roof data extraction successful.`);
++       console.log(`[${jobId}] processFilesAsync: Roof data extraction successful:`, roofData);
+      } catch (e: any) {
+-       console.error(`[${jobId}] Error extracting roof data:`, e.message);
+-       errorMessage = (errorMessage ? errorMessage + '; ' : '') + `Roof report extraction failed: ${e.message}`;
++       console.error(`[${jobId}] processFilesAsync: Error extracting roof data at step ${processingStep}:`, e);
++       detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + '; ' : '') + `Roof report extraction failed: ${e.message}`;
+      }
+  
+      if (estimateData && roofData) {
+        try {
+-         console.log(`[${jobId}] Attempting to analyze discrepancies...`);
+-         analysis = await orchestrator.analyzeDiscrepancies(estimateData, roofData);
+-         console.log(`[${jobId}] Discrepancy analysis successful.`);
+-         console.log(`[${jobId}] Attempting to generate supplement items...`);
+-         supplementItems = await orchestrator.generateSupplementItems(analysis);
+-         console.log(`[${jobId}] Supplement items generation successful.`);
++         processingStep = 'discrepancy_analysis';
++         console.log(`[${jobId}] processFilesAsync: Attempting to analyze discrepancies...`);
++         const analysisResult = await orchestrator.analyzeDiscrepancies(estimateData, roofData);
++         console.log(`[${jobId}] processFilesAsync: Discrepancy analysis successful.`);
++         
++         processingStep = 'supplement_generation';
++         console.log(`[${jobId}] processFilesAsync: Attempting to generate supplement items...`);
++         supplementItems = await orchestrator.generateSupplementItems(analysisResult);
++         console.log(`[${jobId}] processFilesAsync: Supplement items generation successful. Count: ${supplementItems.length}`);
+        } catch (e: any) {
+-         console.error(`[${jobId}] Error during analysis/supplement generation:`, e.message);
+-         errorMessage = (errorMessage ? errorMessage + '; ' : '') + `Analysis failed: ${e.message}`;
++         console.error(`[${jobId}] processFilesAsync: Error during analysis/supplement generation at step ${processingStep}:`, e);
++         detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + '; ' : '') + `Analysis/Supplement generation failed: ${e.message}`;
+        }
+      } else {
++       processingStep = 'data_validation';
+        const missingDataError = !estimateData && !roofData ? 'Both estimate and roof data extraction failed.' 
+                               : !estimateData ? 'Estimate data extraction failed.' 
+                               : 'Roof data extraction failed.';
+-       console.warn(`[${jobId}] Skipping analysis due to missing data: ${missingDataError}`);
+-       errorMessage = (errorMessage ? errorMessage + '; ' : '') + `${missingDataError} Cannot proceed with full analysis.`;
++       console.warn(`[${jobId}] processFilesAsync: Skipping analysis due to missing data: ${missingDataError}`);
++       detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + '; ' : '') + `${missingDataError} Cannot proceed with full analysis.`;
+      }
+  
+-     console.log(`[${jobId}] Preparing to insert into job_data. Current error: ${errorMessage}`);
+-     const { error: dataError } = await supabase
+-       .from('job_data')
+-       .insert({
++     processingStep = 'job_data_insertion';
++     console.log(`[${jobId}] processFilesAsync: Preparing to insert into job_data. Current error: ${detailedErrorMessage}`);
++     const jobDataToInsert = {
+        id: uuidv4(),
+        job_id: jobId,
+```
+
+```diff
+        stories: roofData?.stories,
+        pitch: roofData?.pitch || 'N/A',
+-         error_message: errorMessage
+-       });
++       error_message: detailedErrorMessage
++     };
++     console.log(`[${jobId}] processFilesAsync: Inserting into job_data:`, jobDataToInsert);
++     const { error: dataError } = await supabase
++       .from('job_data')
++       .insert(jobDataToInsert);
+  
+      if (dataError) {
+-       console.error(`[${jobId}] DB error saving job_data:`, dataError);
+-       status = 'failed';
+-       errorMessage = (errorMessage ? errorMessage + '; ' : '') + `DB save error (job_data): ${dataError.message}`;
++       console.error(`[${jobId}] processFilesAsync: DB error saving job_data at step ${processingStep}:`, dataError);
++       currentStatus = 'failed';
++       detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + '; ' : '') + `DB save error (job_data): ${dataError.message}`;
+      } else {
+-       console.log(`[${jobId}] Successfully inserted into job_data.`);
++       console.log(`[${jobId}] processFilesAsync: Successfully inserted into job_data.`);
+      }
+  
+      if (supplementItems.length > 0) {
+-       console.log(`[${jobId}] Preparing to insert ${supplementItems.length} supplement items.`);
++       processingStep = 'supplement_items_insertion';
++       console.log(`[${jobId}] processFilesAsync: Preparing to insert ${supplementItems.length} supplement items.`);
+        const supplementInserts = supplementItems.map(item => ({
+          id: uuidv4(),
+```
+
+```diff
+  
+        if (supplementError) {
+-         console.error(`[${jobId}] DB error saving supplement_items:`, supplementError);
+-         errorMessage = (errorMessage ? errorMessage + '; ' : '') + `DB save error (supplement_items): ${supplementError.message}`;
++         console.error(`[${jobId}] processFilesAsync: DB error saving supplement_items at step ${processingStep}:`, supplementError);
++         detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + '; ' : '') + `DB save error (supplement_items): ${supplementError.message}`;
+        } else {
+-         console.log(`[${jobId}] Successfully inserted supplement items.`);
++         console.log(`[${jobId}] processFilesAsync: Successfully inserted supplement items.`);
+        }
+      }
+      
+-     status = errorMessage ? 'failed' : 'completed';
+-     console.log(`[${jobId}] Determined final status: ${status} (Errors: ${errorMessage})`);
++     currentStatus = detailedErrorMessage ? 'failed' : 'completed';
++     console.log(`[${jobId}] processFilesAsync: Determined final status: ${currentStatus} (Errors: ${detailedErrorMessage})`);
+  
+    } catch (e: any) {
+-     console.error(`[${jobId}] UNHANDLED error in processFilesAsync:`, e);
+-     status = 'failed';
+-     errorMessage = (errorMessage ? errorMessage + '; ' : '') + `Unhandled processing error: ${e.message}`;
++     processingStep = 'unhandled_exception_block';
++     console.error(`[${jobId}] processFilesAsync: UNHANDLED error in main try block at step ${processingStep}:`, e);
++     currentStatus = 'failed';
++     detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + '; ' : '') + `Unhandled processing error: ${e.message}`;
+      
+-     console.log(`[${jobId}] Attempting fallback job_data insert due to unhandled error.`);
++     console.log(`[${jobId}] processFilesAsync: Attempting fallback job_data insert due to unhandled error.`);
+      const { data: existingJobData } = await supabase.from('job_data').select('id').eq('job_id', jobId).maybeSingle();
+      if (!existingJobData) {
+        const { error: fallbackInsertError } = await supabase.from('job_data').insert({
+          id: uuidv4(),
+          job_id: jobId,
+-         error_message: errorMessage,
++         error_message: detailedErrorMessage,
+          property_address: 'N/A',
+          claim_number: 'N/A',
+          insurance_carrier: 'N/A'
+        });
+        if (fallbackInsertError) {
+-         console.error(`[${jobId}] Fallback job_data insert FAILED:`, fallbackInsertError);
++         console.error(`[${jobId}] processFilesAsync: Fallback job_data insert FAILED:`, fallbackInsertError);
+        } else {
+-         console.log(`[${jobId}] Fallback job_data insert successful.`);
++         console.log(`[${jobId}] processFilesAsync: Fallback job_data insert successful.`);
+        }
+      } else {
+-       console.log(`[${jobId}] Fallback job_data insert skipped, record already exists.`);
++       console.log(`[${jobId}] processFilesAsync: Fallback job_data insert skipped, record already exists for this job.`);
+      }
+    } finally {
++     processingStep = 'finally_block';
+      const processingTime = Date.now() - startTime;
+-     console.log(`[${jobId}] processFilesAsync finally block. Status: ${status}, Error: ${errorMessage}`);
++     console.log(`[${jobId}] processFilesAsync: Finally block. Status: ${currentStatus}, Error: ${detailedErrorMessage}`);
+      const { error: updateError } = await supabase
+        .from('jobs')
+        .update({
+-         status: status,
++         status: currentStatus,
+          processing_time_ms: processingTime,
+-         error_message: errorMessage
++         error_message: detailedErrorMessage
+        })
+        .eq('id', jobId);
+  
+      if (updateError) {
+-       console.error(`CRITICAL: Failed to update final job status for ${jobId} to ${status}:`, updateError);
++       console.error(`[${jobId}] processFilesAsync: CRITICAL - Failed to update final job status for ${jobId} to ${currentStatus}:`, updateError);
++     } else {
++       console.log(`[${jobId}] processFilesAsync: Successfully updated final job status for ${jobId} to ${currentStatus}.`);
+      }
+-     console.log(`Job ${jobId} finished with status: ${status}. Processing time: ${processingTime}ms. Errors: ${errorMessage || 'None'}`);
++     console.log(`[${jobId}] processFilesAsync: Finished. Final Status: ${currentStatus}. Processing Time: ${processingTime}ms. Errors: ${detailedErrorMessage || 'None'}`);
+    }
+  }
+```
+
+---
+
+**Step 3: Refine Client-Side Polling and Error Display in `ResultsPage`**
+
+I'll make the client-side polling in `src/app/results/[id]/page.tsx` a bit more resilient and ensure it clearly communicates failures originating from the backend.
+
+---
+
+```diff
+  async function getJobData(jobId: string) {
+    const supabase = getSupabaseClient()
+-   const MAX_RETRIES = 5 // Retry up to 5 times
+-   const RETRY_DELAY_MS = 3000 // Wait 3 seconds between retries
++   const MAX_RETRIES = 7 // Increased retries
++   const RETRY_DELAY_MS = 4000 // Increased delay
++ 
++   console.log(`[Client Job ID: ${jobId}] getJobData: Initializing fetch. Retries: ${MAX_RETRIES}, Delay: ${RETRY_DELAY_MS}ms`)
+  
+    for (let i = 0; i < MAX_RETRIES; i++) {
+      if (i > 0) {
++       console.log(`[Client Job ID: ${jobId}] getJobData: Waiting ${RETRY_DELAY_MS}ms before retry ${i + 1}`)
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS))
+-       console.log(`[Client Job ID: ${jobId}] Retrying job data fetch (${i + 1}/${MAX_RETRIES})...`)
+-     }
+- 
+-     const [jobResult, dataResult, supplementsResult] = await Promise.all([
+-       supabase.from('jobs').select('*').eq('id', jobId).single(), // Job ID must exist
+-       supabase.from('job_data').select('*').eq('job_id', jobId).maybeSingle(), // Data might not exist yet
+-       supabase.from('supplement_items').select('*').eq('job_id', jobId) // Supplements might be empty
+-     ])
+- 
+-     console.log(`[Client Job ID: ${jobId}] Attempt ${i + 1}: Job status: ${jobResult.data?.status}, Job error: ${jobResult.error?.message}, Data found: ${!!dataResult.data}, Data error: ${dataResult.error?.message}, Supplements found: ${supplementsResult.data?.length}`);
+- 
+-     if (jobResult.error || !jobResult.data) { // Critical error fetching job itself or job doesn't exist
+-       console.error(`[Client Job ID: ${jobId}] Job record fetch error or job not found (attempt ${i + 1}):`, jobResult.error?.message)
++     }
++     console.log(`[Client Job ID: ${jobId}] getJobData: Attempt ${i + 1}/${MAX_RETRIES} to fetch job details.`)
++ 
++     try {
++       const { data: job, error: jobError } = await supabase
++         .from('jobs')
++         .select('*')
++         .eq('id', jobId)
++         .single()
++ 
++       if (jobError || !job) {
++         console.error(`[Client Job ID: ${jobId}] getJobData: Error fetching job record or job not found (Attempt ${i + 1}). Error: ${jobError?.message}`)
+          if (i === MAX_RETRIES - 1) {
+-         console.error(`[Client Job ID: ${jobId}] FINAL: Job record not found or unfetchable after ${MAX_RETRIES} retries.`);
+-         return null; // Will lead to notFound()
++           console.error(`[Client Job ID: ${jobId}] getJobData: FINAL - Job record not found or unfetchable after ${MAX_RETRIES} retries.`)
++           return null // Leads to notFound()
+          }
+-       continue // Continue to next retry
++         continue // Next retry
+        }
+  
+-     // At this point, jobResult.data is guaranteed to exist.
+-     const currentJob = jobResult.data as Job;
+- 
+-     if (currentJob.status === 'failed') {
+-       console.warn(`[Client Job ID: ${jobId}] Job processing FAILED. Error: ${currentJob.error_message}`);
++       console.log(`[Client Job ID: ${jobId}] getJobData: (Attempt ${i + 1}) Job record found. Status: ${job.status}, Error Message: ${job.error_message}`)
++ 
++       if (job.status === 'failed') {
++         console.warn(`[Client Job ID: ${jobId}] getJobData: Job processing FAILED. Error from DB: ${job.error_message}`)
++         // Fetch associated job_data if any, to show partial info if available
++         const { data: jobDataRow } = await supabase.from('job_data').select('*').eq('job_id', jobId).maybeSingle()
+          return {
+-         job: currentJob,
+-         data: dataResult.data as JobData | null, 
+-         supplements: supplementsResult.data as SupplementItem[] || []
+-       }
+-     }
+- 
+-     if (currentJob.status === 'completed') {
++           job: job as Job,
++           data: jobDataRow as JobData | null,
++           supplements: [] // Supplements might not exist for a failed job
++         }
++       }
++ 
++       if (job.status === 'completed') {
++         console.log(`[Client Job ID: ${jobId}] getJobData: Job status is COMPLETED. Fetching associated data...`)
++         const [dataResult, supplementsResult] = await Promise.all([
++           supabase.from('job_data').select('*').eq('job_id', jobId).maybeSingle(),
++           supabase.from('supplement_items').select('*').eq('job_id', jobId)
++         ])
++ 
++         if (dataResult.error) {
++           console.error(`[Client Job ID: ${jobId}] getJobData: Error fetching job_data for completed job: ${dataResult.error.message}`)
++           // Potentially return job with null data or retry depending on desired behavior for this specific error
++         }
++         if (supplementsResult.error) {
++           console.error(`[Client Job ID: ${jobId}] getJobData: Error fetching supplement_items for completed job: ${supplementsResult.error.message}`)
++         }
++ 
+          if (dataResult.data) {
+-         console.log(`[Client Job ID: ${jobId}] Job COMPLETED and data found. Proceeding with display.`);
++           console.log(`[Client Job ID: ${jobId}] getJobData: Job COMPLETED and all data found.`)
+            return {
+-           job: currentJob,
++             job: job as Job,
+              data: dataResult.data as JobData,
+-           supplements: supplementsResult.data as SupplementItem[] || []
++             supplements: (supplementsResult.data as SupplementItem[]) || []
+            }
+          } else {
+-         // This is an edge case: job is 'completed' but no job_data. This implies an error during data saving on the backend.
+-         console.error(`[Client Job ID: ${jobId}] Job COMPLETED but no job_data found. Error on job: ${currentJob.error_message}`);
+-         // We'll let it fall through to the retry logic for now, hoping data appears or job status changes to failed on a later retry.
+-         // If it's the last retry, it will eventually return the 'completed' job with null data.
++           console.warn(`[Client Job ID: ${jobId}] getJobData: Job COMPLETED but no job_data found. This might indicate an issue during the final save. Error from job: ${job.error_message}`)
++           // If it's the last retry, return with what we have (completed job, null data)
++           if (i === MAX_RETRIES - 1) {
++             return { job: job as Job, data: null, supplements: [] }
++           }
++           // Otherwise, continue retrying, hoping data appears.
+          }
+        }
+  
+        // If job is still 'processing'
+-     if (currentJob.status === 'processing') {
+-       // If it's the last retry and still processing, return the current state to display a "processing" message
++       if (job.status === 'processing') {
++         if (i === MAX_RETRIES - 1) {
++           console.log(`[Client Job ID: ${jobId}] getJobData: FINAL - Job still PROCESSING after ${MAX_RETRIES} retries. Returning current state.`)
++           const { data: partialData } = await supabase.from('job_data').select('*').eq('job_id', jobId).maybeSingle()
++           return {
++             job: job as Job,
++             data: partialData as JobData | null,
++             supplements: []
++           }
++         }
++         console.log(`[Client Job ID: ${jobId}] getJobData: Job status: PROCESSING. Waiting and retrying...`)
++       }
++ 
++     } catch (fetchError: any) {
++       console.error(`[Client Job ID: ${jobId}] getJobData: Unhandled exception during fetch attempt ${i + 1}:`, fetchError)
+        if (i === MAX_RETRIES - 1) {
+-         console.log(`[Client Job ID: ${jobId}] FINAL: Job still PROCESSING after ${MAX_RETRIES} retries. Returning current state.`);
+-         return {
+-           job: currentJob,
+-           data: dataResult.data as JobData | null,
+-           supplements: supplementsResult.data as SupplementItem[] || []
+-         };
++         console.error(`[Client Job ID: ${jobId}] getJobData: FINAL - Unhandled exception on last retry.`)
++         return null // Leads to notFound()
+        }
+-       // Otherwise, log and continue retrying
+-       console.log(`[Client Job ID: ${jobId}] Job status: PROCESSING. Data found: ${!!dataResult.data}. Waiting...`)
+-     }
+-   }
+- 
+-   // If loop finishes without returning (should ideally be caught by MAX_RETRIES - 1 conditions above)
+-   console.error(`[Client Job ID: ${jobId}] UNEXPECTED: Exited retry loop without returning a result. This should not happen.`);
+-   return null; // Fallback, will lead to notFound()
++       // Continue to next retry if an unexpected error occurs during a fetch attempt
++     }
++   }
++ 
++   console.error(`[Client Job ID: ${jobId}] getJobData: Exited retry loop unexpectedly. This should not happen.`)
++   return null // Fallback
+  }
+  
+```
+
+---
+
+These changes should make the Supabase client usage more robust and provide better logging for diagnosing any remaining issues.
+
+**Summary of Changes:**
+
+1.  **Strict Singleton for Supabase Client**: Ensured `getSupabaseClient` is the sole method for obtaining a client instance, removing the pre-initialized export. Added checks for URL/Key.
+2.  **Enhanced Server-Side Logging**: Added detailed logging in `processFilesAsync` to track each step and capture errors more effectively. Ensured all errors update the job to 'failed' and store a comprehensive error message.
+3.  **Improved Client-Side Polling**: Made `getJobData` on the results page more resilient with increased retries/delays and more robust error checking. It will now also attempt to fetch partial data (from `job_data`) even if the main job status is 'failed'.
+
+Let's commit these changes and try deploying again.
+
+---
+
+```bash
+git add .
+```
+
+```
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation % 
+
+```
+
+---
+
+```bash
+git commit -m "Refactor: Strict Supabase singleton, improved async error handling and client polling"
+```
+
+```
+<on, improved async error handling and client polling"
+[main 7fa6177] Refactor: Strict Supabase singleton, improved async error handling and client polling
+ 4 files changed, 566 insertions(+), 138 deletions(-)
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation %
+```
+
+---
+
+```bash
+git push origin main
+```
+
+```
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation % git push origin main
+Enumerating objects: 29, done.
+Counting objects: 100% (29/29), done.
+Delta compression using up to 10 threads
+Compressing objects: 100% (11/11), done.
+Writing objects: 100% (15/15), 7.87 KiB | 7.87 MiB/s, done.
+Total 15 (delta 6), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (6/6), completed with 6 local objects.
+To https://github.com/jglaspey/eod-agentic-flow.git
+   8594d90..7fa6177  main -> main
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation %
+```
+
+---
+
+Alright, the latest set of changes has been pushed to GitHub. This includes:
+
+1.  **Stricter Supabase Client Singleton**: `src/lib/supabase.ts` now enforces a single instance more rigorously.
+2.  **Improved Server-Side Error Handling**: `src/app/api/process/route.ts` has more detailed logging and step-tracking in `processFilesAsync`.
+3.  **More Resilient Client-Side Polling**: `src/app/results/[id]/page.tsx` has increased retry attempts, longer delays, and better logging for the `getJobData` function.
+
+Vercel should pick up these changes and start a new deployment. Please monitor the Vercel deployment logs again. With the enhanced logging on both client and server sides, we should get a much clearer picture if issues persist.
+
+Let me know how this deployment goes!
+
+---
+
+_**User**_
+
+[12:40:20.707] Running build in Washington, D.C., USA (East) – iad1
+[12:40:20.708] Build machine configuration: 4 cores, 8 GB
+[12:40:20.733] Cloning github.com/jglaspey/eod-agentic-flow (Branch: main, Commit: 7fa6177)
+[12:40:20.978] Cloning completed: 244.000ms
+[12:40:22.830] Restored build cache from previous deployment (2p3LLiZjkDvVwZNYGPHqvENEgxEp)
+[12:40:23.298] Running "vercel build"
+[12:40:23.745] Vercel CLI 42.1.1
+[12:40:24.006] Running "install" command: `npm install`...
+[12:40:27.294] 
+[12:40:27.294] up to date, audited 431 packages in 3s
+[12:40:27.294] 
+[12:40:27.294] 150 packages are looking for funding
+[12:40:27.294]   run `npm fund` for details
+[12:40:27.341] 
+[12:40:27.342] 1 critical severity vulnerability
+[12:40:27.342] 
+[12:40:27.342] To address all issues, run:
+[12:40:27.342]   npm audit fix --force
+[12:40:27.342] 
+[12:40:27.342] Run `npm audit` for details.
+[12:40:27.379] Detected Next.js version: 14.0.0
+[12:40:27.379] Running "npm run build"
+[12:40:27.499] 
+[12:40:27.499] > roofing-estimate-analyzer@0.1.0 build
+[12:40:27.499] > next build
+[12:40:27.499] 
+[12:40:28.189]    ▲ Next.js 14.0.0
+[12:40:28.189] 
+[12:40:28.189]    Creating an optimized production build ...
+[12:40:31.027]  ⚠ Compiled with warnings
+[12:40:31.027] 
+[12:40:31.027] ./src/app/api/test-complete/[id]/route.ts
+[12:40:31.027] Attempted import error: 'createSupabaseClient' is not exported from '@/lib/supabase' (imported as 'createSupabaseClient').
+[12:40:31.028] 
+[12:40:31.028] Import trace for requested module:
+[12:40:31.028] ./src/app/api/test-complete/[id]/route.ts
+[12:40:31.028] 
+[12:40:31.028] ./src/lib/ai-orchestrator.ts
+[12:40:31.028] Attempted import error: 'createSupabaseClient' is not exported from './supabase' (imported as 'createSupabaseClient').
+[12:40:31.028] 
+[12:40:31.028] Import trace for requested module:
+[12:40:31.028] ./src/lib/ai-orchestrator.ts
+[12:40:31.028] ./src/app/api/process/route.ts
+[12:40:31.028] 
+[12:40:31.028]    Linting and checking validity of types ...
+[12:40:35.053] Failed to compile.
+[12:40:35.054] 
+[12:40:35.054] ./src/app/api/test-complete/[id]/route.ts:3:10
+[12:40:35.054] Type error: '"@/lib/supabase"' has no exported member named 'createSupabaseClient'. Did you mean 'getSupabaseClient'?
+[12:40:35.054] 
+[12:40:35.054] [0m [90m 1 |[39m [36mimport[39m { [33mNextRequest[39m[33m,[39m [33mNextResponse[39m } [36mfrom[39m [32m'next/server'[39m[0m
+[12:40:35.054] [0m [90m 2 |[39m [36mimport[39m { v4 [36mas[39m uuidv4 } [36mfrom[39m [32m'uuid'[39m[0m
+[12:40:35.054] [0m[31m[1m>[22m[39m[90m 3 |[39m [36mimport[39m { createSupabaseClient } [36mfrom[39m [32m'@/lib/supabase'[39m[0m
+[12:40:35.054] [0m [90m   |[39m          [31m[1m^[22m[39m[0m
+[12:40:35.054] [0m [90m 4 |[39m[0m
+[12:40:35.054] [0m [90m 5 |[39m [36mexport[39m [36masync[39m [36mfunction[39m [33mPOST[39m([0m
+[12:40:35.055] [0m [90m 6 |[39m   request[33m:[39m [33mNextRequest[39m[33m,[39m[0m
+[12:40:35.107] Error: Command "npm run build" exited with 1
+[12:40:35.354] 
+[12:40:38.856] Exiting build container
+
+---
+
+_**Assistant**_
+
+
+
+---
+

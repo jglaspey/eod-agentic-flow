@@ -1,7 +1,7 @@
 import { OpenAI } from 'openai'
 import { Anthropic } from '@anthropic-ai/sdk'
 import { PDFProcessor } from './pdf-processor'
-import { createSupabaseClient } from './supabase'
+import { getSupabaseClient } from './supabase'
 import { EstimateData, RoofData, SupplementItem, AIConfig } from '@/types'
 
 interface AnalysisResult {
@@ -13,7 +13,7 @@ interface AnalysisResult {
 export class AIOrchestrator {
   private openai: OpenAI | null = null
   private anthropic: Anthropic | null = null
-  private supabase = createSupabaseClient()
+  private supabase = getSupabaseClient()
 
   constructor() {
     // Only initialize if API keys are available
