@@ -9,8 +9,8 @@ Before deploying, ensure you have:
    - Note your project URL and anon key
 
 2. **API Keys**
-   - OpenAI API key from [platform.openai.com](https://platform.openai.com)
-   - Anthropic API key from [console.anthropic.com](https://console.anthropic.com) (optional)
+   - OpenAI API key from [platform.openai.com](https://platform.openai.com) (optional)
+   - Anthropic API key from [console.anthropic.com](https://console.anthropic.com)
 
 3. **Vercel Account**
    - Sign up at [vercel.com](https://vercel.com)
@@ -40,7 +40,7 @@ Before deploying, ensure you have:
    NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
    
    # AI API Keys
-   OPENAI_API_KEY=sk-your_openai_key_here
+   OPENAI_API_KEY=sk-your_openai_key_here # optional
    ANTHROPIC_API_KEY=sk-ant-your_anthropic_key_here
    ```
 
@@ -107,8 +107,8 @@ Before deploying, ensure you have:
 |----------|-------------|----------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Your Supabase project URL | Yes |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anonymous key | Yes |
-| `OPENAI_API_KEY` | OpenAI API key for GPT models | Yes |
-| `ANTHROPIC_API_KEY` | Anthropic API key for Claude models | Optional |
+| `OPENAI_API_KEY` | OpenAI API key for GPT models | Optional |
+| `ANTHROPIC_API_KEY` | Anthropic API key for Claude Sonnet 4 | Yes |
 
 ## Performance Optimization
 
@@ -138,7 +138,7 @@ Add to `vercel.json`:
 ### 3. AI API Optimization
 
 1. **Configure Rate Limits**:
-   - Monitor API usage in OpenAI/Anthropic dashboards
+   - Monitor API usage in the OpenAI or Anthropic dashboards
    - Implement retry logic for rate limit errors
 
 2. **Optimize Prompts**:

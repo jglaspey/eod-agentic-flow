@@ -7,8 +7,8 @@ An AI-powered application for analyzing roofing insurance estimates and generati
 ### Prerequisites
 
 1. **Supabase Account**: Sign up at [supabase.com](https://supabase.com)
-2. **OpenAI API Key**: Get from [platform.openai.com](https://platform.openai.com)
-3. **Anthropic API Key** (optional): Get from [console.anthropic.com](https://console.anthropic.com)
+2. **OpenAI API Key** (optional): Get from [platform.openai.com](https://platform.openai.com)
+3. **Anthropic API Key**: Get from [console.anthropic.com](https://console.anthropic.com)
 
 ### Setup Steps
 
@@ -22,7 +22,7 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
 
 # AI API Keys
-OPENAI_API_KEY=sk-your_openai_key_here
+OPENAI_API_KEY=sk-your_openai_key_here # optional
 ANTHROPIC_API_KEY=sk-ant-your_anthropic_key_here
 ```
 
@@ -43,10 +43,10 @@ DELETE FROM ai_config;
 
 -- Insert updated AI configurations with latest models
 INSERT INTO ai_config (step_name, provider, model, prompt, temperature, max_tokens) VALUES
-('extract_estimate_address', 'openai', 'gpt-4o', 'Extract the property address from this insurance estimate document. Look for the property address, which may be different from the insured''s mailing address. Return only the full property address as a single string.', 0.1, 200),
-('extract_estimate_claim', 'openai', 'gpt-4o', 'Extract the claim number from this insurance estimate document. Look for "Claim Number" or similar labels. The claim number may span multiple lines. Return the complete claim number only, joining any parts with hyphens if split across lines.', 0.1, 100),
-('extract_estimate_carrier', 'openai', 'gpt-4o', 'Extract the insurance carrier/company name from this insurance estimate document. Return only the company name.', 0.1, 100),
-('extract_estimate_rcv', 'openai', 'gpt-4o', 'Extract the total RCV (Replacement Cost Value) amount from this insurance estimate document. Return only the numeric value without currency symbols or commas.', 0.1, 100),
+('extract_estimate_address', 'anthropic', 'claude-sonnet-4-20250514', 'Extract the property address from this insurance estimate document. Look for the property address, which may be different from the insured''s mailing address. Return only the full property address as a single string.', 0.1, 200),
+('extract_estimate_claim', 'anthropic', 'claude-sonnet-4-20250514', 'Extract the claim number from this insurance estimate document. Look for "Claim Number" or similar labels. The claim number may span multiple lines. Return the complete claim number only, joining any parts with hyphens if split across lines.', 0.1, 100),
+('extract_estimate_carrier', 'anthropic', 'claude-sonnet-4-20250514', 'Extract the insurance carrier/company name from this insurance estimate document. Return only the company name.', 0.1, 100),
+('extract_estimate_rcv', 'anthropic', 'claude-sonnet-4-20250514', 'Extract the total RCV (Replacement Cost Value) amount from this insurance estimate document. Return only the numeric value without currency symbols or commas.', 0.1, 100),
 ('extract_roof_measurements', 'anthropic', 'claude-sonnet-4-20250514', 'Extract all roof measurements from this inspection report including: total roof area in squares, eave length, rake length, ridge/hip length, valley length, number of stories, and predominant pitch. Return the values in a structured format with clear labels.', 0.3, 500),
 ('analyze_line_items', 'anthropic', 'claude-sonnet-4-20250514', 'Analyze the provided estimate and roof data to identify missing items or discrepancies. Focus on standard roofing components like drip edge, gutter apron, ice & water barrier, and other items that should be included based on the roof measurements. Return a structured analysis.', 0.5, 1000);
 ```
@@ -83,8 +83,9 @@ Will be correctly extracted as: `1354565-242889-014101`
 - UUID validation to prevent database errors
 
 ### AI Provider Flexibility
-- Supports both OpenAI and Anthropic models
-- Falls back to regex-based extraction when AI is unavailable
+- Defaults to Anthropic Claude Sonnet 4 for all extraction and analysis
+- Supports OpenAI GPT models if `OPENAI_API_KEY` is provided and `ai_config` is updated
+- Falls back to regex-based extraction when no AI provider is available
 - Configurable prompts via database
 
 ## Troubleshooting
@@ -134,7 +135,7 @@ To quickly test with sample data:
 - **Frontend**: Next.js 14 with App Router
 - **Styling**: Tailwind CSS
 - **Database**: Supabase (PostgreSQL)
-- **AI**: OpenAI GPT-4 / Anthropic Claude
+- **AI**: Anthropic Claude Sonnet 4 (default) / optional OpenAI GPT models
 - **PDF Processing**: pdf-parse library
 
 ## Future Enhancements

@@ -11,7 +11,7 @@ The application is designed to take a roofing insurance estimate PDF and a roof 
     *   Receives uploaded files.
     *   Creates a job record in the Supabase `jobs` table with `status: 'processing'`.
     *   Asynchronously processes the files:
-        *   Extracts data from both PDFs using an `AIOrchestrator` class (leveraging OpenAI and Anthropic models).
+        *   Extracts data from both PDFs using an `AIOrchestrator` class (defaulting to Anthropic Claude Sonnet 4, with optional OpenAI models).
         *   Analyzes discrepancies between the estimate and roof report.
         *   Generates potential supplement items.
         *   Saves extracted information into the `job_data` table.
@@ -46,7 +46,7 @@ The application is designed to take a roofing insurance estimate PDF and a roof 
 2.  **Accuracy of AI Extractions and Supplement Generation:**
     *   **Issue:** Earlier, there were issues with the AI not correctly extracting multi-line claim numbers and potentially other inaccuracies. The prompt engineering and choice of models are critical here.
     *   **Recent Fixes (Applied):**
-        *   Updated AI models to `gpt-4o` and `claude-3-opus-20240229` (though we discussed `claude-4-sonnet` - this might need re-verification in `database-schema.sql` and AI config).
+        *   Updated AI model to `claude-sonnet-4-20250514`.
         *   Updated prompts in `database-schema.sql` (via `setup-database.sql`) to be more robust, especially for claim number extraction.
         *   Updated the Anthropic SDK version.
     *   **To Address Next:** Rigorous testing is needed to evaluate the accuracy of:
@@ -135,7 +135,7 @@ Update `AIOrchestrator` class to use LogStreamer:
 ```typescript
 // Example integration points:
 async extractEstimateData(jobId: string, pdfContent: string) {
-  logStreamer.logStep(jobId, 'estimate-extraction', 'Analyzing estimate PDF with OpenAI...');
+  logStreamer.logStep(jobId, 'estimate-extraction', 'Analyzing estimate PDF with Claude Sonnet 4...');
   logStreamer.logAIPrompt(jobId, 'estimate-extraction', prompt);
   
   const response = await openai.chat.completions.create({...});
