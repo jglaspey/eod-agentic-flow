@@ -2,6 +2,7 @@ import { OpenAI } from 'openai'
 import { Anthropic } from '@anthropic-ai/sdk'
 import { PDFProcessor } from './pdf-processor'
 import { getSupabaseClient } from './supabase'
+import { logStreamer } from './log-streamer'
 import { EstimateData, RoofData, SupplementItem, AIConfig } from '@/types'
 
 interface AnalysisResult {
@@ -14,8 +15,9 @@ export class AIOrchestrator {
   private openai: OpenAI | null = null
   private anthropic: Anthropic | null = null
   private supabase = getSupabaseClient()
-
-  constructor() {
+  private jobId?: string
+  constructor(jobId?: string) {
+    this.jobId = jobId
     // Only initialize if API keys are available
     if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_api_key_here') {
       this.openai = new OpenAI({
@@ -32,6 +34,7 @@ export class AIOrchestrator {
 
   async extractEstimateData(pdfBuffer: Buffer): Promise<EstimateData> {
     try {
+      logStreamer.logStep(this.jobId || 'unknown', 'estimate-extraction-start', 'Extracting estimate PDF text')
       const text = await PDFProcessor.extractText(pdfBuffer)
       
       if (!this.openai && !this.anthropic) {
@@ -56,12 +59,14 @@ export class AIOrchestrator {
       }
     } catch (error) {
       console.error('Error extracting estimate data:', error)
+      logStreamer.logError(this.jobId || 'unknown', 'estimate-extraction', String(error))
       return { lineItems: [] }
     }
   }
 
   async extractRoofData(pdfBuffer: Buffer): Promise<RoofData> {
     try {
+      logStreamer.logStep(this.jobId || 'unknown', 'roof-report-extraction-start', 'Extracting roof report PDF text')
       const text = await PDFProcessor.extractText(pdfBuffer)
       
       if (!this.openai && !this.anthropic) {
@@ -87,11 +92,13 @@ export class AIOrchestrator {
       }
     } catch (error) {
       console.error('Error extracting roof data:', error)
+      logStreamer.logError(this.jobId || 'unknown', 'roof-report-extraction', String(error))
       return {}
     }
   }
 
   async analyzeDiscrepancies(estimateData: EstimateData, roofData: RoofData): Promise<AnalysisResult> {
+    logStreamer.logStep(this.jobId || 'unknown', 'discrepancy-analysis-start', 'Analyzing discrepancies')
     const analysisPrompt = `
     Compare this insurance estimate with the roof inspection data and identify discrepancies:
     
@@ -109,18 +116,28 @@ export class AIOrchestrator {
     Return a structured analysis of missing items and discrepancies.
     `
 
-    const response = await this.callAI('analyze_line_items', analysisPrompt)
-    return this.parseAnalysisResult(response)
+    try {
+      const response = await this.callAI('analyze_line_items', analysisPrompt)
+      return this.parseAnalysisResult(response)
+    } catch (err) {
+      logStreamer.logError(this.jobId || 'unknown', 'discrepancy-analysis', String(err))
+      throw err
+    }
   }
 
   async generateSupplementItems(analysis: AnalysisResult): Promise<SupplementItem[]> {
+    logStreamer.logStep(this.jobId || 'unknown', 'supplement-generation-start', 'Generating supplement items')
     const supplementItems: SupplementItem[] = []
 
     // Generate specific supplement items based on analysis
     for (const missingItem of analysis.missingItems) {
-      const item = await this.createSupplementItem(missingItem, analysis.calculations)
-      if (item) {
-        supplementItems.push(item)
+      try {
+        const item = await this.createSupplementItem(missingItem, analysis.calculations)
+        if (item) {
+          supplementItems.push(item)
+        }
+      } catch (err) {
+        logStreamer.logError(this.jobId || 'unknown', 'supplement-generation', String(err))
       }
     }
 
@@ -132,7 +149,7 @@ export class AIOrchestrator {
     if (!config) {
       throw new Error(`AI config not found for step: ${stepName}`)
     }
-
+    logStreamer.logStep(this.jobId || 'unknown', stepName, 'Calling AI to extract field')
     return this.callAI(stepName, `${config.prompt}\n\nDocument text:\n${text}`)
   }
 
@@ -152,6 +169,7 @@ export class AIOrchestrator {
     ${text}
     `
 
+    logStreamer.logStep(this.jobId || 'unknown', 'estimate-line-items', 'Extracting line items')
     const response = await this.callAI('analyze_line_items', prompt)
     
     try {
@@ -283,54 +301,59 @@ export class AIOrchestrator {
   }
 
   private async callAI(stepName: string, prompt: string): Promise<string> {
-    const startTime = Date.now();
-    
-    console.log(`\n🤖 [AI CALL] Step: ${stepName}`);
-    console.log(`📝 [PROMPT] Length: ${prompt.length} chars`);
-    console.log(`📝 [PROMPT] Preview: ${prompt.substring(0, 200)}...`);
+    const startTime = Date.now()
+    logStreamer.logAIPrompt(this.jobId || 'unknown', stepName, prompt)
     
     const config = await this.getAIConfig(stepName)
     if (!config) {
       throw new Error(`AI config not found for step: ${stepName}`)
     }
 
-    console.log(`⚙️ [CONFIG] Provider: ${config.provider}, Model: ${config.model}, Temp: ${config.temperature}, Max tokens: ${config.max_tokens}`);
+    console.log(`⚙️ [CONFIG] Provider: ${config.provider}, Model: ${config.model}, Temp: ${config.temperature}, Max tokens: ${config.max_tokens}`)
 
-    let response = '';
-    
-    if (config.provider === 'openai' && this.openai) {
-      console.log(`🎯 [OPENAI] Calling ${config.model}...`);
-      const apiResponse = await this.openai.chat.completions.create({
-        model: config.model,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: config.temperature,
-        max_tokens: config.max_tokens
-      })
-      
-      response = apiResponse.choices[0]?.message?.content || '';
-      console.log(`✅ [OPENAI] Response length: ${response.length} chars`);
-      console.log(`💭 [RESPONSE] Preview: ${response.substring(0, 300)}...`);
-      
-    } else if (config.provider === 'anthropic' && this.anthropic) {
-      console.log(`🎯 [ANTHROPIC] Calling ${config.model}...`);
-      const apiResponse = await this.anthropic.messages.create({
-        model: config.model,
-        max_tokens: config.max_tokens,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: config.temperature
-      })
-      
-      response = apiResponse.content[0]?.type === 'text' ? apiResponse.content[0].text : '';
-      console.log(`✅ [ANTHROPIC] Response length: ${response.length} chars`);
-      console.log(`💭 [RESPONSE] Preview: ${response.substring(0, 300)}...`);
-    } else {
-      console.warn(`⚠️ [WARNING] No AI provider available for ${stepName}, using fallback`)
-      return ''
+    let response = ''
+
+    try {
+      if (config.provider === 'openai' && this.openai) {
+        console.log(`🎯 [OPENAI] Calling ${config.model}...`)
+        const apiResponse = await this.openai.chat.completions.create({
+          model: config.model,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: config.temperature,
+          max_tokens: config.max_tokens
+        })
+
+        response = apiResponse.choices[0]?.message?.content || ''
+        console.log(`✅ [OPENAI] Response length: ${response.length} chars`)
+        console.log(`💭 [RESPONSE] Preview: ${response.substring(0, 300)}...`)
+        logStreamer.logAIResponse(this.jobId || 'unknown', stepName, response)
+
+      } else if (config.provider === 'anthropic' && this.anthropic) {
+        console.log(`🎯 [ANTHROPIC] Calling ${config.model}...`)
+        const apiResponse = await this.anthropic.messages.create({
+          model: config.model,
+          max_tokens: config.max_tokens,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: config.temperature
+        })
+
+        response = apiResponse.content[0]?.type === 'text' ? apiResponse.content[0].text : ''
+        console.log(`✅ [ANTHROPIC] Response length: ${response.length} chars`)
+        console.log(`💭 [RESPONSE] Preview: ${response.substring(0, 300)}...`)
+        logStreamer.logAIResponse(this.jobId || 'unknown', stepName, response)
+      } else {
+        console.warn(`⚠️ [WARNING] No AI provider available for ${stepName}, using fallback`)
+        return ''
+      }
+    } catch (err) {
+      logStreamer.logError(this.jobId || 'unknown', stepName, String(err))
+      throw err
     }
     
-    const duration = Date.now() - startTime;
-    console.log(`⏱️ [TIMING] AI call took ${duration}ms\n`);
-    
+    const duration = Date.now() - startTime
+    console.log(`⏱️ [TIMING] AI call took ${duration}ms\n`)
+    logStreamer.logSuccess(this.jobId || 'unknown', stepName, `AI call completed in ${duration}ms`)
+
     return response;
   }
 

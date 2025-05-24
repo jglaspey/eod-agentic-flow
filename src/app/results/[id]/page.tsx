@@ -1,7 +1,10 @@
+'use client'
+import { useEffect, useState } from 'react'
 import { notFound } from 'next/navigation'
 import { getSupabaseClient } from '@/lib/supabase'
 import { Job, JobData, SupplementItem } from '@/types'
 import ResultsDisplay from '@/components/ResultsDisplay'
+import LogTerminal from '@/components/LogTerminal'
 
 interface ResultsPageProps {
   params: {
@@ -123,29 +126,57 @@ async function getJobData(jobId: string) {
   return null // Fallback
 }
 
-export default async function ResultsPage({ params }: ResultsPageProps) {
-  const jobData = await getJobData(params.id)
+export default function ResultsPage({ params }: ResultsPageProps) {
+  const [jobData, setJobData] = useState<{
+    job: Job
+    data: JobData | null
+    supplements: SupplementItem[]
+  } | null>(null)
+  const [isProcessing, setIsProcessing] = useState(true)
+  const [showLogs, setShowLogs] = useState(true)
+
+  useEffect(() => {
+    getJobData(params.id).then(data => {
+      if (!data) {
+        setIsProcessing(false)
+        return
+      }
+      setJobData(data)
+      setIsProcessing(data.job.status === 'processing')
+    })
+  }, [params.id])
 
   if (!jobData) {
-    notFound()
+    return <div className="p-4">Loading...</div>
   }
 
   return (
     <div className="max-w-6xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">
-          Analysis Results
-        </h1>
-        <p className="text-gray-600">
-          Job ID: {params.id}
-        </p>
+      <div className="mb-4">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Analysis Results</h1>
+        <p className="text-gray-600">Job ID: {params.id}</p>
       </div>
-
-      <ResultsDisplay
-        job={jobData.job}
-        jobData={jobData.data}
-        supplements={jobData.supplements}
-      />
+      {isProcessing ? (
+        <LogTerminal jobId={params.id} onComplete={async () => {
+          const fresh = await getJobData(params.id)
+          if (fresh) {
+            setJobData(fresh)
+            setIsProcessing(false)
+            setShowLogs(false)
+          }
+        }} />
+      ) : (
+        <>
+          <button
+            className="mb-4 px-3 py-1 rounded bg-gray-200"
+            onClick={() => setShowLogs(!showLogs)}
+          >
+            {showLogs ? 'Hide' : 'Show'} Processing Logs
+          </button>
+          {showLogs && <LogTerminal jobId={params.id} readonly />}
+          <ResultsDisplay job={jobData.job} jobData={jobData.data} supplements={jobData.supplements} />
+        </>
+      )}
     </div>
   )
 }

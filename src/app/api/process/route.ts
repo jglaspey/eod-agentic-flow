@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
 import { getSupabaseClient } from '@/lib/supabase'
 import { AIOrchestrator } from '@/lib/ai-orchestrator'
+import { logStreamer } from '@/lib/log-streamer'
 import { SupplementItem } from '@/types'
 
 export async function POST(request: NextRequest) {
@@ -162,6 +163,7 @@ async function processFilesAsync(
   startTime: number
 ) {
   console.log(`[${jobId}] processFilesAsync: Started.`);
+  logStreamer.logStep(jobId, 'job-started', 'Job processing started')
   const supabase = getSupabaseClient();
   let currentStatus = 'processing';
   let detailedErrorMessage: string | null = null;
@@ -170,13 +172,15 @@ async function processFilesAsync(
   try {
     processingStep = 'buffer_conversion';
     console.log(`[${jobId}] processFilesAsync: Converting files to buffers...`);
+    logStreamer.logStep(jobId, processingStep, 'Converting uploaded files to buffers')
     const estimateBuffer = Buffer.from(await estimateFile.arrayBuffer());
     const roofReportBuffer = Buffer.from(await roofReportFile.arrayBuffer());
     console.log(`[${jobId}] processFilesAsync: File buffers created.`);
 
     processingStep = 'ai_orchestrator_init';
     console.log(`[${jobId}] processFilesAsync: Initializing AIOrchestrator...`);
-    const orchestrator = new AIOrchestrator();
+    const orchestrator = new AIOrchestrator(jobId);
+    logStreamer.logStep(jobId, processingStep, 'AIOrchestrator initialized')
     console.log(`[${jobId}] processFilesAsync: AIOrchestrator initialized.`);
 
     let estimateData = null;
@@ -186,6 +190,7 @@ async function processFilesAsync(
     try {
       processingStep = 'estimate_extraction';
       console.log(`[${jobId}] processFilesAsync: Attempting to extract estimate data...`);
+      logStreamer.logStep(jobId, processingStep, 'Extracting estimate PDF')
       estimateData = await orchestrator.extractEstimateData(estimateBuffer);
       console.log(`[${jobId}] processFilesAsync: Estimate data extraction successful:`, estimateData);
     } catch (e: any) {
@@ -196,6 +201,7 @@ async function processFilesAsync(
     try {
       processingStep = 'roof_report_extraction';
       console.log(`[${jobId}] processFilesAsync: Attempting to extract roof data...`);
+      logStreamer.logStep(jobId, processingStep, 'Extracting roof report PDF')
       roofData = await orchestrator.extractRoofData(roofReportBuffer);
       console.log(`[${jobId}] processFilesAsync: Roof data extraction successful:`, roofData);
     } catch (e: any) {
@@ -207,11 +213,13 @@ async function processFilesAsync(
       try {
         processingStep = 'discrepancy_analysis';
         console.log(`[${jobId}] processFilesAsync: Attempting to analyze discrepancies...`);
+        logStreamer.logStep(jobId, processingStep, 'Analyzing discrepancies')
         const analysisResult = await orchestrator.analyzeDiscrepancies(estimateData, roofData);
         console.log(`[${jobId}] processFilesAsync: Discrepancy analysis successful.`);
         
         processingStep = 'supplement_generation';
         console.log(`[${jobId}] processFilesAsync: Attempting to generate supplement items...`);
+        logStreamer.logStep(jobId, processingStep, 'Generating supplement items')
         supplementItems = await orchestrator.generateSupplementItems(analysisResult);
         console.log(`[${jobId}] processFilesAsync: Supplement items generation successful. Count: ${supplementItems.length}`);
       } catch (e: any) {
@@ -229,6 +237,7 @@ async function processFilesAsync(
 
     processingStep = 'job_data_insertion';
     console.log(`[${jobId}] processFilesAsync: Preparing to insert into job_data. Current error: ${detailedErrorMessage}`);
+    logStreamer.logStep(jobId, processingStep, 'Saving job data to database')
     const jobDataToInsert = {
       id: uuidv4(),
       job_id: jobId,
@@ -262,6 +271,7 @@ async function processFilesAsync(
     if (supplementItems.length > 0) {
       processingStep = 'supplement_items_insertion';
       console.log(`[${jobId}] processFilesAsync: Preparing to insert ${supplementItems.length} supplement items.`);
+      logStreamer.logStep(jobId, processingStep, `Inserting ${supplementItems.length} supplement items`)
       const supplementInserts = supplementItems.map(item => ({
         id: uuidv4(),
         job_id: jobId,
@@ -287,10 +297,12 @@ async function processFilesAsync(
     
     currentStatus = detailedErrorMessage ? 'failed' : 'completed';
     console.log(`[${jobId}] processFilesAsync: Determined final status: ${currentStatus} (Errors: ${detailedErrorMessage})`);
+    logStreamer.logStep(jobId, 'job-completed', `Job ${currentStatus}`)
 
   } catch (e: any) {
     processingStep = 'unhandled_exception_block';
     console.error(`[${jobId}] processFilesAsync: UNHANDLED error in main try block at step ${processingStep}:`, e);
+    logStreamer.logError(jobId, processingStep, e.message)
     currentStatus = 'failed';
     detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + '; ' : '') + `Unhandled processing error: ${e.message}`;
     
@@ -317,6 +329,7 @@ async function processFilesAsync(
     processingStep = 'finally_block';
     const processingTime = Date.now() - startTime;
     console.log(`[${jobId}] processFilesAsync: Finally block. Status: ${currentStatus}, Error: ${detailedErrorMessage}`);
+    logStreamer.logStep(jobId, processingStep, 'Finalizing job')
     const { error: updateError } = await supabase
       .from('jobs')
       .update({
