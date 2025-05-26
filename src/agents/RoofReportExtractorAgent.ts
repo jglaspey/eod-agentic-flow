@@ -10,498 +10,449 @@ import {
   ExtractedField,
   ExtractionStrategy,
   LogLevel,
-  AIConfig
+  AIConfig,
+  AgentTask
 } from './types';
-import { PDFProcessor } from '@/lib/pdf-processor';
-import { PDFToImagesTool, PDFToImagesOptions } from '@/tools/pdf-to-images';
+// Assuming PDFProcessor is simplified or its type definition needs to be visible here
+// For now, let's assume a simplified structure for PDFProcessor and VisionModelProcessor outputs if not fully typed elsewhere
+interface SimpleTextExtractionResult { text: string; model?: string; }
+interface SimpleVisionAnalysisResult { extractedText: string; jsonOutput?: any; model?: string; confidence: number; }
+
+import { PDFProcessor } from '@/lib/pdf-processor'; // Will assume it has a static extractText method for now
 import { VisionModelProcessor, VisionModelConfig } from '@/tools/vision-models';
+import { PDFToImagesTool, PDFToImagesOptions } from '@/tools/pdf-to-images';
 import { getSupabaseClient } from '@/lib/supabase';
 import { v4 as uuidv4 } from 'uuid';
 import { OpenAI } from 'openai';
 import { Anthropic } from '@anthropic-ai/sdk';
 
-interface RoofReportExtractionInput {
+interface RoofReportExtractorInput {
   pdfBuffer: Buffer;
+  jobId: string;
   strategy?: ExtractionStrategy;
 }
 
 /**
- * Specialized agent for extracting data from roof report PDFs.
- * Focuses on measurements, pitch, facets, and other roof-specific data.
- * Uses text extraction first, falls back to vision models for diagrams or complex tables.
+ * RoofReportExtractorAgent is responsible for extracting detailed roof measurement data
+ * from PDF documents (typically roof reports from services like EagleView or Hover).
  */
 export class RoofReportExtractorAgent extends Agent {
-  private visionProcessor: VisionModelProcessor;
   private supabase = getSupabaseClient();
-  private openai: OpenAI | null = null;
-  private anthropic: Anthropic | null = null;
+  private visionProcessor: VisionModelProcessor;
+  // PDFToImagesTool methods are static, so an instance might not be needed unless it has state.
+  // private pdfToImagesTool: PDFToImagesTool;
+  // openai and anthropic are now inherited from the base Agent class
+  // private openai: OpenAI | null = null;
+  // private anthropic: Anthropic | null = null;
 
   constructor() {
     const config: AgentConfig = {
       name: 'RoofReportExtractorAgent',
       version: '1.0.0',
-      capabilities: ['text_extraction', 'vision_processing', 'measurement_validation'],
-      defaultTimeout: 75000, // Increased timeout for potentially complex vision tasks
+      capabilities: ['roof_measurement_extraction', 'pdf_parsing', 'vision_analysis', 'data_normalization'],
+      defaultTimeout: 180000, // 3 minutes
       maxRetries: 2,
-      confidenceThreshold: 0.75, // Higher threshold for critical measurements
-      tools: ['pdf_processor', 'pdf_to_images', 'vision_models']
+      confidenceThreshold: 0.7,
+      tools: ['PDFProcessor', 'VisionModelProcessor', 'PDFToImagesTool']
     };
-    
     super(config);
     this.visionProcessor = new VisionModelProcessor();
+    // this.pdfToImagesTool = new PDFToImagesTool(); // Static methods typically don't need instantiation
 
-    if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_api_key_here') {
-      this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    }
-    if (process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY !== 'your_anthropic_api_key_here') {
-      this.anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-    }
+    // AI clients are initialized in the base Agent constructor
+    // if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_api_key_here') {
+    //     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    // }
+    // if (process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY !== 'your_anthropic_api_key_here') {
+    //     this.anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    // }
   }
 
   get agentType(): AgentType {
     return AgentType.ROOF_REPORT_EXTRACTOR;
   }
 
-  async plan(input: RoofReportExtractionInput, context: TaskContext): Promise<AgentExecutionPlan> {
-    this.log(LogLevel.INFO, 'planning-roof-report', `Planning extraction for roof report task ${context.taskId}`);
-    const tasks = [
-      {
-        id: uuidv4(),
-        type: 'extract_text_roof',
-        input: input.pdfBuffer,
-        context,
-        status: 'pending' as const,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      },
-      {
-        id: uuidv4(),
-        type: 'extract_fields_text_roof',
-        input: null, // Populated by extract_text_roof
-        context,
-        status: 'pending' as const,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      }
-    ];
+  async plan(input: RoofReportExtractorInput, context: TaskContext): Promise<AgentExecutionPlan> {
+    this.log(LogLevel.INFO, 'planning-roof-extraction', `Planning roof report extraction for job ${input.jobId}`, { parentTaskId: context.taskId, agentType: this.agentType });
+    const tasks: AgentTask[] = [];
+    const strategy = input.strategy || ExtractionStrategy.HYBRID;
 
-    if (input.strategy === ExtractionStrategy.VISION_ONLY ||
-        input.strategy === ExtractionStrategy.HYBRID ||
-        input.strategy === ExtractionStrategy.FALLBACK) {
+    if (strategy === ExtractionStrategy.TEXT_ONLY || strategy === ExtractionStrategy.HYBRID || strategy === ExtractionStrategy.FALLBACK) {
       tasks.push({
         id: uuidv4(),
-        type: 'extract_fields_vision_roof',
-        input: input.pdfBuffer,
-        context,
-        status: 'pending' as const,
+        type: 'extract_text_from_roof_pdf',
+        input: { pdfBuffer: input.pdfBuffer },
+        context: { ...context, taskId: uuidv4(), parentTaskId: context.taskId, jobId: input.jobId, priority: 1 },
+        status: 'pending',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+      tasks.push({
+        id: uuidv4(),
+        type: 'extract_fields_from_roof_text',
+        input: null, // Depends on previous task
+        context: { ...context, taskId: uuidv4(), parentTaskId: context.taskId, jobId: input.jobId, priority: 2 },
+        status: 'pending',
         createdAt: new Date(),
         updatedAt: new Date()
       });
     }
 
-    const dependencies = new Map<string, string[]>();
-    dependencies.set(tasks[1].id, [tasks[0].id]); // extract_fields_text_roof depends on extract_text_roof
-
+    if (strategy === ExtractionStrategy.VISION_ONLY || strategy === ExtractionStrategy.HYBRID || strategy === ExtractionStrategy.FALLBACK) {
+      tasks.push({
+        id: uuidv4(),
+        type: 'convert_pdf_to_images_roof',
+        input: { pdfBuffer: input.pdfBuffer },
+        context: { ...context, taskId: uuidv4(), parentTaskId: context.taskId, jobId: input.jobId, priority: strategy === ExtractionStrategy.VISION_ONLY ? 1 : 2 },
+        status: 'pending',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+      tasks.push({
+        id: uuidv4(),
+        type: 'extract_fields_from_roof_vision',
+        input: null, // Will depend on image conversion task
+        context: { ...context, taskId: uuidv4(), parentTaskId: context.taskId, jobId: input.jobId, priority: strategy === ExtractionStrategy.VISION_ONLY ? 2 : 3 },
+        status: 'pending',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+    }
+    
     return {
       tasks,
-      dependencies,
-      estimatedDuration: 45000, // Adjusted for roof report complexity
+      dependencies: new Map(), // Simplified for now; can add dependencies between text/vision field extraction tasks
+      estimatedDuration: 90000,
       confidence: 0.85
     };
   }
 
-  async act(input: RoofReportExtractionInput, context: TaskContext): Promise<AgentResult<RoofMeasurements>> {
-    this.log(LogLevel.INFO, 'roof-extraction-start', `Starting roof report data extraction for task ${context.taskId}`);
-    
-    let textExtractionResult: string = '';
-    let textConfidence = 0;
-    let textMeasurements: RoofMeasurements | null = null;
-    let visionMeasurements: RoofMeasurements | null = null;
+  async act(input: RoofReportExtractorInput, context: TaskContext): Promise<AgentResult<RoofMeasurements>> {
+    this.log(LogLevel.INFO, 'roof-extraction-start', `Starting roof report extraction for job ${input.jobId}`, { parentTaskId: context.taskId, agentType: this.agentType });
+    const { pdfBuffer, jobId, strategy = ExtractionStrategy.HYBRID } = input;
 
-    try {
-      // 1. Text Extraction
-      this.log(LogLevel.DEBUG, 'text-extraction-roof', 'Extracting text from roof report PDF', { taskId: context.taskId });
-      textExtractionResult = await PDFProcessor.extractText(input.pdfBuffer);
-      textConfidence = this.calculateTextQuality(textExtractionResult); // Using a generic text quality for now
-      this.log(LogLevel.INFO, 'text-extracted-roof', 
-        `Text extraction from roof report completed. Quality: ${textConfidence.toFixed(3)}`,
-        { textLength: textExtractionResult.length, quality: textConfidence, taskId: context.taskId }
-      );
+    let textContent: string | null = null;
+    let visionJsonOutput: any | null = null; // For parsed JSON from vision
+    let textBasedMeasurements: Partial<RoofMeasurements> = {};
+    let visionBasedMeasurements: Partial<RoofMeasurements> = {};
 
-      // 2. Text-based Measurement Extraction
-      if (textConfidence > 0.4 && // Slightly lower threshold for text attempt, as roof reports can be sparse
-          (input.strategy === ExtractionStrategy.TEXT_ONLY || 
-           input.strategy === ExtractionStrategy.HYBRID || 
-           input.strategy === ExtractionStrategy.FALLBACK)) {
-        this.log(LogLevel.DEBUG, 'measurement-extraction-text-roof', 'Extracting roof measurements from text', { taskId: context.taskId });
-        try {
-          textMeasurements = await this.extractMeasurementsFromText(textExtractionResult, context);
-        } catch (error) {
-          this.log(LogLevel.WARN, 'text-measurement-error', `Roof measurement extraction from text failed: ${error}`, { taskId: context.taskId, error });
-        }
-      }
+    const errors: string[] = [];
 
-      // 3. Vision-based Measurement Extraction
-      const shouldUseVision = (
-        input.strategy === ExtractionStrategy.VISION_ONLY ||
-        input.strategy === ExtractionStrategy.HYBRID ||
-        (input.strategy === ExtractionStrategy.FALLBACK && 
-          (!textMeasurements || this.getOverallMeasurementConfidence(textMeasurements) < this.config.confidenceThreshold))
-      );
-
-      if (shouldUseVision) {
-        if (await PDFToImagesTool.isAvailable() && this.visionProcessor.isAvailable()) {
-          this.log(LogLevel.INFO, 'vision-fallback-roof', 'Using vision models for roof measurement extraction', { taskId: context.taskId });
-          try {
-            visionMeasurements = await this.extractMeasurementsFromVision(input.pdfBuffer, context);
-          } catch (error) {
-            this.log(LogLevel.WARN, 'vision-measurement-error', `Roof measurement extraction from vision failed: ${error}`, { taskId: context.taskId, error });
-          }
+    // Text Extraction (if applicable)
+    if (strategy === ExtractionStrategy.TEXT_ONLY || strategy === ExtractionStrategy.HYBRID || strategy === ExtractionStrategy.FALLBACK) {
+      try {
+        this.log(LogLevel.DEBUG, 'roof-text-extraction', `Attempting text extraction from roof report for job ${jobId}`, { agentType: this.agentType });
+        // Assuming PDFProcessor.extractText is a static method returning a string
+        textContent = await PDFProcessor.extractText(pdfBuffer);
+        if (textContent && textContent.length > 100) { // Basic check for meaningful text
+          this.log(LogLevel.INFO, 'roof-text-extracted', `Text extracted successfully. Length: ${textContent.length}`, { agentType: this.agentType });
+          textBasedMeasurements = await this.extractFieldsFromText(textContent, jobId);
         } else {
-          this.log(LogLevel.WARN, 'vision-unavailable-roof', 'Vision processing for roof report requested but tools are not available', { taskId: context.taskId });
+          this.log(LogLevel.WARN, 'roof-text-extraction-poor', 'Extracted text from roof report is minimal or empty.', { agentType: this.agentType });
+          if (strategy === ExtractionStrategy.TEXT_ONLY) errors.push('Text extraction yielded minimal content, and strategy is TEXT_ONLY.');
+        }
+      } catch (error: any) {
+        this.log(LogLevel.ERROR, 'roof-text-extraction-failed', `Text extraction from roof report failed: ${error.message}`, { error: error.toString(), agentType: this.agentType });
+        errors.push(`Text extraction failed: ${error.message}`);
+        if (strategy === ExtractionStrategy.TEXT_ONLY) throw new Error('Critical text extraction failure in TEXT_ONLY mode.');
+      }
+    }
+
+    // Vision Extraction (if applicable or as fallback)
+    const needsVision = strategy === ExtractionStrategy.VISION_ONLY || 
+                        (strategy === ExtractionStrategy.HYBRID && !this.isSufficient(textBasedMeasurements)) ||
+                        (strategy === ExtractionStrategy.FALLBACK && !this.isSufficient(textBasedMeasurements));
+
+    if (needsVision && (this.openai || this.anthropic)) {
+      try {
+        this.log(LogLevel.DEBUG, 'roof-vision-conversion-to-images', `Converting PDF to images for vision analysis for job ${jobId}`, { agentType: this.agentType });
+        const imageOptions: PDFToImagesOptions = { dpi: 200, format: 'jpg', quality: 80 };
+        const imageDataUrls = await PDFToImagesTool.convertPDFToDataURLs(pdfBuffer, imageOptions);
+        
+        if (!imageDataUrls || imageDataUrls.length === 0) {
+            this.log(LogLevel.WARN, 'pdf-to-images-failed-roof', 'PDF to images conversion yielded no images.', { agentType: this.agentType });
+            errors.push('PDF to images conversion failed for vision analysis.');
+            if (strategy === ExtractionStrategy.VISION_ONLY) throw new Error('Critical PDF to images failure in VISION_ONLY mode.');
+        } else {
+            this.log(LogLevel.DEBUG, 'roof-vision-extraction', `Attempting vision extraction from ${imageDataUrls.length} images for job ${jobId}`, { agentType: this.agentType });
+            
+            // Determine preferred provider and model for Vision
+            const preferredProvider = this.anthropic ? 'anthropic' : 'openai';
+            const preferredModel = preferredProvider === 'anthropic' ? 'claude-3-haiku-20240307' : 'gpt-4-turbo-preview'; // Or gpt-4o
+
+            const visionModelConfig: VisionModelConfig = {
+                provider: preferredProvider,
+                model: preferredModel,
+                maxTokens: 1500,
+                temperature: 0.3
+            };
+
+            const visionAnalysisResult: SimpleVisionAnalysisResult = await this.visionProcessor.analyzeImages(imageDataUrls, "Extract all roof measurement details... Respond in JSON.", visionModelConfig);
+            
+            if (visionAnalysisResult && visionAnalysisResult.extractedText) {
+                try {
+                    visionJsonOutput = JSON.parse(visionAnalysisResult.extractedText);
+                    this.log(LogLevel.INFO, 'roof-vision-extracted-parsed', `Vision analysis of roof report completed and text parsed as JSON.`, { agentType: this.agentType });
+                    visionBasedMeasurements = this.parseVisionOutput(visionJsonOutput);
+                } catch (parseError: any) {
+                    this.log(LogLevel.WARN, 'roof-vision-json-parse-failed', `Failed to parse vision extractedText as JSON: ${parseError.message}. Proceeding with vision text for text-based field extraction as fallback.`, { rawText: visionAnalysisResult.extractedText.substring(0, 200), agentType: this.agentType });
+                    visionBasedMeasurements = await this.extractFieldsFromText(visionAnalysisResult.extractedText, jobId, 'hybrid'); 
+                }
+            } else if (visionAnalysisResult && visionAnalysisResult.jsonOutput) { 
+                this.log(LogLevel.INFO, 'roof-vision-extracted-direct-json', `Vision analysis of roof report completed with direct JSON output.`, { agentType: this.agentType });
+                visionBasedMeasurements = this.parseVisionOutput(visionAnalysisResult.jsonOutput);
+            } else {
+              this.log(LogLevel.WARN, 'roof-vision-extraction-poor', 'Vision analysis of roof report did not yield structured JSON output or text.', { agentType: this.agentType });
+              if (strategy === ExtractionStrategy.VISION_ONLY) errors.push('Vision extraction failed to produce structured data, and strategy is VISION_ONLY.');
+            }
+        }
+      } catch (error: any) {
+        this.log(LogLevel.ERROR, 'roof-vision-extraction-failed', `Vision extraction from roof report failed: ${error.message}`, { error: error.toString(), agentType: this.agentType });
+        errors.push(`Vision extraction failed: ${error.message}`);
+        if (strategy === ExtractionStrategy.VISION_ONLY) throw new Error('Critical vision extraction failure in VISION_ONLY mode.');
+      }
+    }
+
+    const combinedMeasurements = this.combineExtractions(textBasedMeasurements, visionBasedMeasurements, strategy);
+    const validation = await this.validate(combinedMeasurements, context);
+    
+    if (errors.length > 0) validation.errors.push(...errors);
+    if (!validation.isValid && validation.confidence < 0.5) {
+        this.log(LogLevel.ERROR, 'roof-extraction-failed-validation', 'Roof report extraction failed validation with low confidence.', { validation, agentType: this.agentType });
+    } else if (!validation.isValid) {
+        this.log(LogLevel.WARN, 'roof-extraction-validation-issues', 'Roof report extraction completed with validation issues.', { validation, agentType: this.agentType });
+    }
+
+    return {
+      data: combinedMeasurements,
+      validation,
+      processingTimeMs: 0, // Will be set by base Agent
+      model: this.determineModelUsed(textContent, visionJsonOutput)
+    };
+  }
+  
+  private isSufficient(measurements: Partial<RoofMeasurements>): boolean {
+    // Define what constitutes sufficient extraction from text alone
+    return !!(measurements.totalRoofArea?.value && measurements.pitch?.value);
+  }
+
+  private async extractFieldsFromText(text: string, jobId: string, sourceOverride?: ExtractedField<any>['source']): Promise<Partial<RoofMeasurements>> {
+    const effectiveSource = sourceOverride || 'text';
+    this.log(LogLevel.DEBUG, 'extract-roof-fields-text', `Extracting roof fields from text (source: ${effectiveSource}) for job ${jobId}`, { agentType: this.agentType });
+    const extracted: Partial<RoofMeasurements> = {};
+    const configKey = 'extract_roof_measurements_text';
+    
+    try {
+        const aiConfig = (await this.getAIConfigs([configKey]))[configKey];
+        if (!aiConfig || !aiConfig.prompt) {
+            this.log(LogLevel.WARN, 'no-text-config-roof', `AI config for ${configKey} not found or no prompt. Skipping AI extraction from text (source: ${effectiveSource}).`, { agentType: this.agentType });
+            return extracted;
+        }
+        const prompt = aiConfig.prompt.replace('{{TEXT_CONTENT}}', text);
+        const response = await this.callAI(aiConfig, prompt, jobId, AgentType.ROOF_REPORT_EXTRACTOR);
+        const parsedResponse = JSON.parse(response); 
+
+        extracted.totalRoofArea = this.createExtractedField(parsedResponse.totalRoofArea, 0.7, effectiveSource);
+        extracted.eaveLength = this.createExtractedField(parsedResponse.eaveLength, 0.7, effectiveSource);
+        extracted.rakeLength = this.createExtractedField(parsedResponse.rakeLength, 0.7, effectiveSource);
+        extracted.ridgeHipLength = this.createExtractedField(parsedResponse.ridgeHipLength, 0.7, effectiveSource);
+        extracted.valleyLength = this.createExtractedField(parsedResponse.valleyLength, 0.7, effectiveSource);
+        extracted.stories = this.createExtractedField(parsedResponse.stories, 0.7, effectiveSource);
+        extracted.pitch = this.createExtractedField(parsedResponse.pitch, 0.7, effectiveSource);
+        extracted.facets = this.createExtractedField(parsedResponse.facets, 0.6, effectiveSource);
+        
+        this.log(LogLevel.INFO, 'roof-fields-extracted-text', `Roof fields extracted from text (source: ${effectiveSource}).`, { extractedFields: Object.keys(parsedResponse), agentType: this.agentType });
+    } catch (error: any) {
+        this.log(LogLevel.ERROR, 'extract-roof-fields-text-error', `Error extracting roof fields from text (source: ${effectiveSource}): ${error.message}`, { error: error.toString(), agentType: this.agentType });
+    }
+    return extracted;
+  }
+
+  private parseVisionOutput(visionJson: any): Partial<RoofMeasurements> {
+    this.log(LogLevel.DEBUG, 'parse-roof-vision-output', `Parsing vision output for roof measurements.`, { visionJsonOutputKeys: Object.keys(visionJson), agentType: this.agentType });
+    const extracted: Partial<RoofMeasurements> = {};
+    extracted.totalRoofArea = this.createExtractedField(visionJson.total_roof_area || visionJson.totalRoofArea, 0.8, 'vision');
+    extracted.eaveLength = this.createExtractedField(visionJson.eave_length || visionJson.eaveLength, 0.8, 'vision');
+    extracted.rakeLength = this.createExtractedField(visionJson.rake_length || visionJson.rakeLength, 0.8, 'vision');
+    extracted.ridgeHipLength = this.createExtractedField(visionJson.ridge_hip_length || visionJson.ridgeHipLength, 0.8, 'vision');
+    extracted.valleyLength = this.createExtractedField(visionJson.valley_length || visionJson.valleyLength, 0.8, 'vision');
+    extracted.stories = this.createExtractedField(visionJson.stories, 0.8, 'vision');
+    extracted.pitch = this.createExtractedField(visionJson.pitch, 0.8, 'vision');
+    extracted.facets = this.createExtractedField(visionJson.facets, 0.7, 'vision');
+    this.log(LogLevel.INFO, 'roof-fields-parsed-vision', `Roof fields parsed from vision output.`, { parsedFields: Object.keys(extracted).filter(k => (extracted as any)[k]?.value !== null), agentType: this.agentType });
+    return extracted;
+  }
+
+  private combineExtractions(
+    textData: Partial<RoofMeasurements>,
+    visionData: Partial<RoofMeasurements>,
+    strategy: ExtractionStrategy
+  ): RoofMeasurements {
+    this.log(LogLevel.DEBUG, 'combine-roof-extractions', `Combining text and vision roof extractions with strategy: ${strategy}`, { agentType: this.agentType });
+    const combined: Partial<RoofMeasurements> = {};
+    const fields: (keyof RoofMeasurements)[] = ['totalRoofArea', 'eaveLength', 'rakeLength', 'ridgeHipLength', 'valleyLength', 'stories', 'pitch', 'facets'];
+
+    for (const field of fields) {
+      const textFieldItem = textData[field] as ExtractedField<any> | undefined;
+      const visionFieldItem = visionData[field] as ExtractedField<any> | undefined;
+
+      if (strategy === ExtractionStrategy.TEXT_ONLY) {
+        combined[field] = textFieldItem || this.createFallbackField(field);
+      } else if (strategy === ExtractionStrategy.VISION_ONLY) {
+        combined[field] = visionFieldItem || this.createFallbackField(field);
+      } else { // HYBRID or FALLBACK
+        if (textFieldItem?.value !== null && textFieldItem?.value !== undefined && visionFieldItem?.value !== null && visionFieldItem?.value !== undefined) {
+          // Both have values, prefer vision if confidence is similar or higher, or average, or take highest confidence
+          if (visionFieldItem.confidence >= (textFieldItem.confidence - 0.1)) {
+            combined[field] = {...visionFieldItem, source: 'hybrid', confidence: Math.max(textFieldItem.confidence, visionFieldItem.confidence), rationale: `Combined from text (conf: ${textFieldItem.confidence.toFixed(2)}) and vision (conf: ${visionFieldItem.confidence.toFixed(2)})` };
+          } else {
+            combined[field] = {...textFieldItem, source: 'hybrid', confidence: Math.max(textFieldItem.confidence, visionFieldItem.confidence), rationale: `Combined from text (conf: ${textFieldItem.confidence.toFixed(2)}) and vision (conf: ${visionFieldItem.confidence.toFixed(2)})` };
+          }
+        } else if (visionFieldItem?.value !== null && visionFieldItem?.value !== undefined) {
+          combined[field] = visionFieldItem;
+        } else if (textFieldItem?.value !== null && textFieldItem?.value !== undefined) {
+          combined[field] = textFieldItem;
+        } else {
+          combined[field] = this.createFallbackField(field);
         }
       }
-
-      // 4. Combine Results
-      if (!textMeasurements && !visionMeasurements) {
-        throw new Error('Both text and vision extraction failed to produce roof measurements.');
-      }
-      const finalMeasurements = this.combineRoofMeasurements(textMeasurements, visionMeasurements, textConfidence);
-      const overallConfidence = this.getOverallMeasurementConfidence(finalMeasurements);
-
-      this.log(LogLevel.SUCCESS, 'roof-extraction-complete', 
-        `Roof report extraction completed with overall confidence: ${overallConfidence.toFixed(3)}`,
-        { taskId: context.taskId, overallConfidence }
-      );
-
-      return {
-        data: finalMeasurements,
-        validation: await this.validate(finalMeasurements, context),
-        processingTimeMs: 0, // Set by base Agent
-        model: visionMeasurements && textMeasurements ? 'hybrid' : (visionMeasurements ? 'vision' : 'text')
-      };
-
-    } catch (error) {
-      this.log(LogLevel.ERROR, 'roof-extraction-failed', `Roof report extraction failed: ${error}`, { taskId: context.taskId, error });
-      throw error;
     }
-  }
-
-  private async extractMeasurementsFromText(text: string, context: TaskContext): Promise<RoofMeasurements> {
-    this.log(LogLevel.DEBUG, 'text-parse-roof-measurements', 'Parsing roof measurements from text via AI', { taskId: context.taskId });
-    const config = (await this.getAIConfigs(['extract_roof_measurements_text'])).extract_roof_measurements_text;
-    if (!config || !config.prompt) {
-      this.log(LogLevel.WARN, 'missing-roof-text-config', 'AI config for text-based roof measurement extraction is missing.');
-      return this.createEmptyRoofMeasurements('Missing AI config for text extraction');
-    }
-
-    const prompt = `${config.prompt}\n\nRoof Report Text:\n${text}`;
-    const aiResponse = await this.callAI(config, prompt, context.taskId || 'unknown-task');
-
-    try {
-      const parsed = JSON.parse(aiResponse);
-      // TODO: Add more robust parsing and validation for each field from parsed JSON
-      return {
-        totalRoofArea: this.createExtractedField(parsed.totalRoofArea || 0, 0.7, 'Parsed from text AI', 'text'),
-        eaveLength: this.createExtractedField(parsed.eaveLength || 0, 0.7, 'Parsed from text AI', 'text'),
-        rakeLength: this.createExtractedField(parsed.rakeLength || 0, 0.7, 'Parsed from text AI', 'text'),
-        ridgeHipLength: this.createExtractedField(parsed.ridgeHipLength || 0, 0.7, 'Parsed from text AI', 'text'),
-        valleyLength: this.createExtractedField(parsed.valleyLength || 0, 0.7, 'Parsed from text AI', 'text'),
-        stories: this.createExtractedField(parsed.stories || 1, 0.6, 'Parsed from text AI', 'text'),
-        pitch: this.createExtractedField(parsed.pitch || '', 0.6, 'Parsed from text AI', 'text'),
-        facets: this.createExtractedField(parsed.facets || 0, 0.5, 'Parsed from text AI', 'text'),
-      };
-    } catch (error) {
-      this.log(LogLevel.ERROR, 'text-roof-parse-error', `Failed to parse roof measurements JSON from text: ${error}. Raw: ${aiResponse.substring(0, 200)}`, { error });
-      return this.createEmptyRoofMeasurements(`AI response parsing error: ${error}`);
-    }
-  }
-
-  private async extractMeasurementsFromVision(pdfBuffer: Buffer, context: TaskContext): Promise<RoofMeasurements> {
-    this.log(LogLevel.DEBUG, 'vision-parse-roof-measurements', 'Parsing roof measurements from vision via AI', { taskId: context.taskId });
-    const imageOptions: PDFToImagesOptions = { dpi: 300, format: 'jpg', quality: 85 };
-    const imageDataUrls = await PDFToImagesTool.convertPDFToDataURLs(pdfBuffer, imageOptions);
-    this.log(LogLevel.INFO, 'pdf-converted-vision-roof', `PDF converted to ${imageDataUrls.length} images for roof vision processing`, { taskId: context.taskId });
-
-    const visionProvider = this.anthropic ? 'anthropic' : (this.openai ? 'openai' : null);
-    if (!visionProvider) throw new Error('No vision AI provider (Anthropic or OpenAI) is configured.');
-
-    const aiConfigKey = 'extract_roof_measurements_vision';
-    const config = (await this.getAIConfigs([aiConfigKey]))[aiConfigKey];
-     if (!config || !config.prompt) {
-      this.log(LogLevel.WARN, 'missing-roof-vision-config', 'AI config for vision-based roof measurement extraction is missing.');
-      return this.createEmptyRoofMeasurements('Missing AI config for vision extraction');
-    }
-
-    const visionModelConfig: VisionModelConfig = {
-      provider: visionProvider,
-      model: config.model_name || (visionProvider === 'anthropic' ? 'claude-3-5-sonnet-20241022' : 'gpt-4o'),
-      maxTokens: config.max_tokens || 2000,
-      temperature: config.temperature || 0.1,
-    };
-    
-    // Tailor prompt for roof measurements
-    const prompt = `${config.prompt}\n\nAnalyze the following roof report images (could be tables, diagrams, or text) and extract these specific measurements. Be precise. Measurements are typically in feet or squares (1 square = 100 sq ft).\nReturn ONLY a JSON object with these keys:
-{
-  "totalRoofArea": number_or_null, // Total roof area in SQUARES (convert if necessary)
-  "eaveLength": number_or_null, // Total length of eaves in FEET
-  "rakeLength": number_or_null, // Total length of rakes in FEET
-  "ridgeHipLength": number_or_null, // Total length of ridges and hips combined in FEET
-  "valleyLength": number_or_null, // Total length of valleys in FEET
-  "stories": number_or_null, // Number of stories (e.g., 1, 2)
-  "pitch": "string_value_or_null", // Predominant roof pitch (e.g., "7/12")
-  "facets": number_or_null // Number of distinct roof facets/planes
-}
-If a value is not found or unclear, use null. Convert square feet to squares for totalRoofArea if original is in SF.`;
-
-    const visionResult = await this.visionProcessor.analyzeImages(imageDataUrls, prompt, visionModelConfig);
-    this.log(LogLevel.INFO, 'vision-analysis-roof-complete', 
-      `Vision analysis for roof report completed. Model: ${visionResult.model}, Confidence: ${visionResult.confidence.toFixed(3)}`,
-      { taskId: context.taskId, model: visionResult.model, confidence: visionResult.confidence }
-    );
-
-    try {
-      const parsed = JSON.parse(visionResult.extractedText.replace(/,(?=\s*\})/g, '')); // Robust parsing
-      return {
-        totalRoofArea: this.createExtractedField(parsed.totalRoofArea, visionResult.confidence, 'Extracted via vision', 'vision'),
-        eaveLength: this.createExtractedField(parsed.eaveLength, visionResult.confidence * 0.9, 'Extracted via vision', 'vision'),
-        rakeLength: this.createExtractedField(parsed.rakeLength, visionResult.confidence * 0.9, 'Extracted via vision', 'vision'),
-        ridgeHipLength: this.createExtractedField(parsed.ridgeHipLength, visionResult.confidence * 0.9, 'Extracted via vision', 'vision'),
-        valleyLength: this.createExtractedField(parsed.valleyLength, visionResult.confidence * 0.9, 'Extracted via vision', 'vision'),
-        stories: this.createExtractedField(parsed.stories, visionResult.confidence * 0.8, 'Extracted via vision', 'vision'),
-        pitch: this.createExtractedField(parsed.pitch, visionResult.confidence * 0.85, 'Extracted via vision', 'vision'),
-        facets: this.createExtractedField(parsed.facets, visionResult.confidence * 0.7, 'Extracted via vision', 'vision'),
-      };
-    } catch (error) {
-      this.log(LogLevel.ERROR, 'vision-roof-parse-error', `Failed to parse roof measurements JSON from vision: ${error}. Raw: ${visionResult.extractedText.substring(0,200)}`, { error });
-      return this.createEmptyRoofMeasurements(`Vision AI response parsing error: ${error}`);
-    }
-  }
-
-  private combineRoofMeasurements(
-    textResults: RoofMeasurements | null,
-    visionResults: RoofMeasurements | null,
-    textQuality: number
-  ): RoofMeasurements {
-    if (!textResults && !visionResults) return this.createEmptyRoofMeasurements('No data from text or vision for roof report');
-    if (!visionResults) return textResults!;
-    if (!textResults) return visionResults!;
-
-    // Prefer vision for roof reports if available due to diagrams, but use text as strong supplement
-    const combined: any = {};
-    for (const key in visionResults) {
-      const typedKey = key as keyof RoofMeasurements;
-      const visionField = visionResults[typedKey];
-      const textField = textResults[typedKey];
-      
-      if (textField.confidence > visionField.confidence + 0.15 && textQuality > 0.6) {
-        combined[typedKey] = { ...textField, source: 'hybrid' as const };
-      } else {
-        combined[typedKey] = { ...visionField, source: 'hybrid' as const };
-      }
-    }
-    return combined as RoofMeasurements;
+    this.log(LogLevel.INFO, 'roof-extractions-combined', `Roof extractions combined.`, { finalFieldsPresent: Object.keys(combined).filter(k=> (combined as any)[k]?.value !== null), agentType: this.agentType });
+    return combined as RoofMeasurements; // Cast, assuming all fields are now set (even if fallback)
   }
   
-  private calculateTextQuality(text: string): number {
-    if (!text || text.trim().length < 50) return 0.1;
-    const printableChars = text.replace(/[^\x20-\x7E\n\r\t]/g, '').length;
-    const printableRatio = printableChars / text.length;
-    const structureIndicators = [/area/i, /pitch/i, /eave/i, /rake/i, /ridge/i, /valley/i, /total/i, /length/i, /measurement/i, /sq ft/i, /summary/i, /SF/i, /LF/i];
-    let structureScore = 0;
-    for (const indicator of structureIndicators) {
-      if (indicator.test(text)) structureScore += 0.05;
-    }
-    structureScore = Math.min(0.5, structureScore);
-    const wordCount = text.trim().split(/\s+/).length;
-    const wordScore = Math.min(0.2, wordCount / 1500); // Roof reports can be shorter
-    return Math.min(0.95, printableRatio * 0.5 + structureScore + wordScore);
-  }
-
-  private getOverallMeasurementConfidence(measurements: RoofMeasurements | null): number {
-    if (!measurements) return 0;
-    const fields = [
-      measurements.totalRoofArea,
-      measurements.eaveLength,
-      measurements.rakeLength,
-      measurements.ridgeHipLength,
-      measurements.valleyLength,
-      measurements.pitch,
-      measurements.stories
-    ];
-    const validFields = fields.filter(f => f && f.value !== null && f.value !== undefined && (typeof f.value !== 'string' || f.value.trim() !== '') && f.confidence > 0.2);
-    if (validFields.length === 0) return 0.1;
-    return validFields.reduce((sum, field) => sum + (field?.confidence || 0), 0) / validFields.length;
-  }
-  
-  private createEmptyRoofMeasurements(rationaleSuffix: string = ''): RoofMeasurements {
-    const rationale = `Data not available. ${rationaleSuffix}`.trim();
+  private createExtractedField<T>(value: T | null | undefined, confidence: number, source: ExtractedField<T>['source'], rationale?: string): ExtractedField<T | null> {
+    const validValue = !(value === undefined || value === null || (typeof value === 'string' && value.trim() === ''));
     return {
-        totalRoofArea: this.createExtractedField(0, 0.01, rationale, 'fallback'),
-        eaveLength: this.createExtractedField(0, 0.01, rationale, 'fallback'),
-        rakeLength: this.createExtractedField(0, 0.01, rationale, 'fallback'),
-        ridgeHipLength: this.createExtractedField(0, 0.01, rationale, 'fallback'),
-        valleyLength: this.createExtractedField(0, 0.01, rationale, 'fallback'),
-        stories: this.createExtractedField(1, 0.01, rationale, 'fallback'), // Default to 1 story
-        pitch: this.createExtractedField('', 0.01, rationale, 'fallback'),
-        facets: this.createExtractedField(0, 0.01, rationale, 'fallback'),
+      value: validValue ? value : null,
+      confidence: validValue ? confidence : 0,
+      rationale: rationale || (validValue ? `Extracted via ${source}` : 'Not found or empty'),
+      source,
+      attempts: 1
+    };
+  }
+
+  private createFallbackField(fieldName: keyof RoofMeasurements): ExtractedField<any | null> {
+    return {
+        value: null,
+        confidence: 0,
+        rationale: `Field '${fieldName}' not found by any extraction method.`,
+        source: 'fallback',
+        attempts: 0
     };
   }
 
   async validate(result: RoofMeasurements, context: TaskContext): Promise<ValidationResult> {
-    this.log(LogLevel.INFO, 'validating-roof-report', `Validating roof report for task ${context.taskId}`);
+    this.log(LogLevel.INFO, 'validating-roof-measurements', `Validating extracted roof measurements for job ${context.jobId}`, { agentType: this.agentType });
     const errors: string[] = [];
     const warnings: string[] = [];
-    const suggestions: string[] = [];
+    let confidence = 0.7; // Base confidence
+
+    const checkNumField = (field: ExtractedField<number | null> | undefined, name: string, critical: boolean = false, minVal: number = 0) => {
+      if (!field || field.value === null || field.value === undefined) {
+        if (critical) errors.push(`${name} is missing or null.`);
+        else warnings.push(`${name} is missing or null.`);
+        confidence *= 0.8;
+      } else if (typeof field.value !== 'number' || field.value < minVal) {
+        errors.push(`${name} has an invalid value: ${field.value}. Must be a number >= ${minVal}.`);
+        confidence *= 0.7;
+      } else if (field.confidence < 0.5) {
+        warnings.push(`${name} has low confidence: ${field.confidence.toFixed(2)}.`);
+        confidence *= 0.9;
+      }
+    };
+
+    const checkStringField = (
+      field: ExtractedField<string | null> | undefined,
+      name: string,
+      critical: boolean = false,
+      pattern?: RegExp
+    ) => {
+      const value = field?.value;
+      const isMissing =
+        value === null ||
+        value === undefined ||
+        (typeof value === 'string' && value.trim() === '') ||
+        (typeof value !== 'string'); // treat non-strings as missing for a string field
+
+      if (isMissing) {
+        if (critical) errors.push(`${name} is missing or empty.`);
+        else warnings.push(`${name} is missing or empty.`);
+        confidence *= 0.8;
+        return;
+      }
+
+      // From here down we know value is a non-empty string.
+      const strVal = value as string;
+
+      if (pattern && !pattern.test(strVal)) {
+        errors.push(`${name} has an invalid format: ${strVal}. Expected pattern: ${pattern.toString()}`);
+        confidence *= 0.7;
+      } else if (field && field.confidence < 0.5) {
+        warnings.push(`${name} has low confidence: ${field.confidence.toFixed(2)}.`);
+        confidence *= 0.9;
+      }
+    };
     
-    const overallConfidence = this.getOverallMeasurementConfidence(result);
+    checkNumField(result.totalRoofArea, 'Total Roof Area', true, 1); // e.g. min 1 square
+    // Pitch is a string like "7/12" or just a number like "7"
+    checkStringField(result.pitch, 'Pitch', true, /^(\d{1,2}(?:\.\d{1,2})?)(?:\/12)?$/ ); 
+    checkNumField(result.stories, 'Stories', false, 1);
+    checkNumField(result.eaveLength, 'Eave Length', false);
+    checkNumField(result.rakeLength, 'Rake Length', false);
+    checkNumField(result.ridgeHipLength, 'Ridge/Hip Length', false);
+    checkNumField(result.valleyLength, 'Valley Length', false);
 
-    if (!result.totalRoofArea?.value || result.totalRoofArea.value <= 0) {
-        warnings.push('Total roof area is missing, zero, or invalid.');
-    } else if (result.totalRoofArea.value < 5) { // 5 squares is a very small roof
-        warnings.push(`Total roof area (${result.totalRoofArea.value} sq) seems very small. Please verify.`);
-    }
-
-    if (!result.pitch?.value || result.pitch.value.trim() === '') {
-        warnings.push('Roof pitch is missing.');
-    } else if (!/^(\d{1,2}(?:\.\d{1,2})?)\/12$/.test(result.pitch.value) && !/^\d{1,2}$/.test(result.pitch.value)) {
-        warnings.push(`Roof pitch format (${result.pitch.value}) is unusual. Expected X/12 or just X.`);
-    }
-
-    if (!result.stories?.value || result.stories.value <= 0) {
-        warnings.push('Number of stories is missing or invalid.');
-    } else if (result.stories.value > 5) {
-         warnings.push(`Number of stories (${result.stories.value}) seems high. Please verify.`);
-    }
-
-    // Basic consistency checks for linear measurements if area exists
-    if (result.totalRoofArea?.value && result.totalRoofArea.value > 0) {
-        const linearMeasurements = [
-            result.eaveLength?.value || 0,
-            result.rakeLength?.value || 0,
-            result.ridgeHipLength?.value || 0,
-            result.valleyLength?.value || 0
-        ];
-        const totalLinear = linearMeasurements.reduce((sum, len) => sum + len, 0);
-        if (totalLinear <= 0) {
-            warnings.push('Linear measurements (eaves, rakes, ridges, valleys) are missing or zero, but roof area is present.');
+    if (result.totalRoofArea?.value && (result.eaveLength?.value || result.rakeLength?.value)) {
+        if ((result.eaveLength?.value || 0) + (result.rakeLength?.value || 0) > (result.totalRoofArea.value * 20)) { // area in squares * 20 ~ linear feet limit (very rough)
+            warnings.push('Sum of eave and rake lengths seems unusually high compared to total roof area.');
+            confidence *= 0.85;
         }
-        // Heuristic: total linear feet should roughly be related to sqrt(area_in_sq_ft)
-        // Area in sq ft = area in squares * 100
-        const expectedMinLinear = Math.sqrt(result.totalRoofArea.value * 100) * 2; // Very rough lower bound
-        if (totalLinear > 0 && totalLinear < expectedMinLinear && result.totalRoofArea.value > 10) {
-            warnings.push(`Total linear measurements (${totalLinear} LF) seem low for the reported roof area (${result.totalRoofArea.value} sq).`);
-        }
-    }
-    
-    if (overallConfidence < this.config.confidenceThreshold) {
-        suggestions.push(`Overall confidence (${overallConfidence.toFixed(2)}) is below threshold (${this.config.confidenceThreshold}). Manual review recommended.`);
     }
 
     return {
-      isValid: errors.length === 0, // No hard errors for now, mostly warnings
-      confidence: overallConfidence,
+      isValid: errors.length === 0,
+      confidence: Math.max(0.1, Math.min(0.95, confidence)),
       errors,
       warnings,
-      suggestions
-    };
-  }
-
-  // Helper to create ExtractedField, ensuring confidence is within bounds
-  private createExtractedField<T>(
-    value: T,
-    confidence: number,
-    rationale: string,
-    source: 'text' | 'vision' | 'hybrid' | 'fallback',
-    attempts: number = 1
-  ): ExtractedField<T> {
-    return {
-      value,
-      confidence: Math.max(0, Math.min(1, confidence)),
-      rationale,
-      source,
-      attempts
+      suggestions: []
     };
   }
   
-  private async getAIConfigs(stepNames: string[]): Promise<Record<string, AIConfig>> {
-    this.log(LogLevel.DEBUG, 'get-roof-ai-configs', `Fetching AI configs for: ${stepNames.join(', ')}`)
+  private determineModelUsed(textContent: string | null, visionJsonOutput: any | null): string {
+    const models: string[] = [];
+    // This is a simplification; actual model names would come from text/vision processor results if they provide it
+    if (textContent) models.push(`text_extraction_model`); 
+    if (visionJsonOutput) models.push(`vision_extraction_model`);
+    return models.length > 0 ? models.join(', ') : 'none';
+  }
+
+  protected async getAIConfigs(stepNames: string[]): Promise<Record<string, AIConfig>> {
+    this.log(LogLevel.DEBUG, 'get-roof-extractor-ai-configs', `Fetching AI configs for: ${stepNames.join(', ')}`, { agentType: this.agentType });
     const configs: Record<string, AIConfig> = {};
     for (const stepName of stepNames) {
       const { data, error } = await this.supabase
         .from('ai_configs')
         .select('*')
         .eq('step_name', stepName)
-        .single()
+        .single();
 
-      if (error) {
-        this.log(LogLevel.WARN, 'roof-config-fetch-error', `Error fetching AI config for ${stepName}: ${error.message}`)
+      if (error || !data) {
+        this.log(LogLevel.WARN, 'roof-config-fetch-error', `Error fetching AI config for ${stepName} or config not found: ${error?.message || 'Not found'}. Using default.`, { agentType: this.agentType });
         configs[stepName] = {
-            step_name: stepName,
-            prompt: `Extract relevant data for ${stepName.replace(/_/g, ' ')} from the provided roof report text or images. Focus on accuracy and standard roofing terminology. Return JSON.`, 
-            model_provider: 'anthropic',
-            model_name: 'claude-3-haiku-20240307',
-            temperature: 0.2,
-            max_tokens: 1500,
-        }; 
-      } else if (data) {
-        configs[stepName] = data as AIConfig
+          step_name: stepName,
+          prompt: "Extract all roof measurement values from the following text. Focus on total area, eave, rake, ridge, hip, valley lengths, number of stories, and pitch. Provide output in a structured JSON format with keys like: totalRoofArea, eaveLength, rakeLength, ridgeHipLength, valleyLength, stories, pitch, facets. Ensure all values are numerical where appropriate. If a value is clearly a range (e.g. 6-7/12 pitch), use the lower end or a reasonable average. For stories, if like '1 to 1.5', use 1.5.\n\nTEXT CONTENT TO ANALYZE:\n{{TEXT_CONTENT}}",
+          model_provider: this.anthropic ? 'anthropic' : 'openai',
+          model_name: this.anthropic ? 'claude-3-haiku-20240307' : 'gpt-3.5-turbo', 
+          temperature: 0.2,
+          max_tokens: 1000,
+          json_mode: true,
+        };
       } else {
-         this.log(LogLevel.WARN, 'roof-config-not-found', `AI config not found for ${stepName}, using default.`);
-         configs[stepName] = {
-            step_name: stepName,
-            prompt: `Extract data for ${stepName.replace(/_/g, ' ')} from roof report. Return JSON.`, 
-            model_provider: 'anthropic', 
-            model_name: 'claude-3-haiku-20240307',
-            temperature: 0.2,
-            max_tokens: 1500,
-        }; 
+        configs[stepName] = data as AIConfig;
       }
     }
     return configs;
   }
 
-  private async callAI(config: AIConfig, prompt: string, jobId: string): Promise<string> {
-    this.log(LogLevel.DEBUG, 'roof-ai-call-start', `Calling ${config.model_provider} model ${config.model_name} for task ${jobId}`);
-    const startTime = Date.now();
-    try {
-      let responseText = '';
-      if (config.model_provider === 'openai' && this.openai) {
-        const response = await this.openai.chat.completions.create({
-          model: config.model_name || 'gpt-3.5-turbo',
-          messages: [{ role: 'user', content: prompt }],
-          max_tokens: config.max_tokens || 1500,
-          temperature: config.temperature || 0.2,
-          response_format: { type: "json_object" }, // Request JSON output if supported
-        });
-        responseText = response.choices[0]?.message?.content || ''
-      } else if (config.model_provider === 'anthropic' && this.anthropic) {
-        const response = await this.anthropic.messages.create({
-          model: config.model_name || 'claude-3-haiku-20240307',
-          max_tokens: config.max_tokens || 1500,
-          temperature: config.temperature || 0.2,
-          messages: [{ role: 'user', content: prompt }]
-        });
-        // Ensure we handle cases where content is an array (though for single user message, it usually isn't)
-        responseText = Array.isArray(response.content) && response.content[0]?.type === 'text' ? response.content[0].text : '';
-      } else {
-        throw new Error(`Unsupported AI provider or client not initialized for roof report: ${config.model_provider}`)
-      }
-      
-      const duration = Date.now() - startTime;
-      this.log(LogLevel.INFO, 'roof-ai-call-success', 
-        `${config.model_provider} call for ${jobId} completed in ${duration}ms. Output length: ${responseText.length}`,
-        { duration, outputLength: responseText.length, provider: config.model_provider, model: config.model_name }
-      )
-      return responseText;
-
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      this.log(LogLevel.ERROR, 'roof-ai-call-error', 
-        `${config.model_provider} call for ${jobId} failed after ${duration}ms: ${error}`,
-        { duration, error, provider: config.model_provider, model: config.model_name }
-      )
-      throw error;
-    }
-  }
 } 

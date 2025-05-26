@@ -7,7 +7,8 @@ CREATE TABLE jobs (
   status VARCHAR(50) NOT NULL CHECK (status IN ('processing', 'completed', 'failed')),
   estimate_pdf_url TEXT,
   roof_report_pdf_url TEXT,
-  processing_time_ms INTEGER
+  processing_time_ms INTEGER,
+  error_message TEXT
 );
 
 -- Extracted data table
@@ -19,6 +20,8 @@ CREATE TABLE job_data (
   insurance_carrier TEXT,
   date_of_loss DATE,
   total_rcv DECIMAL(10,2),
+  total_acv DECIMAL(10,2),
+  deductible DECIMAL(10,2),
   roof_area_squares DECIMAL(10,2),
   eave_length DECIMAL(10,2),
   rake_length DECIMAL(10,2),
@@ -26,6 +29,11 @@ CREATE TABLE job_data (
   valley_length DECIMAL(10,2),
   stories INTEGER,
   pitch VARCHAR(20),
+  estimate_confidence DECIMAL(3,2) CHECK (estimate_confidence >= 0 AND estimate_confidence <= 1),
+  roof_report_confidence DECIMAL(3,2) CHECK (roof_report_confidence >= 0 AND roof_report_confidence <= 1),
+  supervisor_outcome VARCHAR(20),
+  supervisor_recommendations TEXT,
+  error_message TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

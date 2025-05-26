@@ -9,13 +9,16 @@ import {
   EstimateFieldExtractions,
   ExtractedField,
   ExtractionStrategy,
-  LogLevel
+  LogLevel,
+  AIConfig
 } from './types'
 import { PDFProcessor } from '@/lib/pdf-processor'
 import { PDFToImagesTool } from '@/tools/pdf-to-images'
 import { VisionModelProcessor, VisionModelConfig } from '@/tools/vision-models'
 import { getSupabaseClient } from '@/lib/supabase'
 import { v4 as uuidv4 } from 'uuid'
+import { OpenAI } from 'openai'
+import { Anthropic } from '@anthropic-ai/sdk'
 
 interface EstimateExtractionInput {
   pdfBuffer: Buffer
@@ -29,13 +32,15 @@ interface EstimateExtractionInput {
 export class EstimateExtractorAgent extends Agent {
   private visionProcessor: VisionModelProcessor
   private supabase = getSupabaseClient()
+  private openai: OpenAI | null = null
+  private anthropic: Anthropic | null = null
 
   constructor() {
     const config: AgentConfig = {
       name: 'EstimateExtractorAgent',
       version: '1.0.0',
       capabilities: ['text_extraction', 'vision_processing', 'field_validation'],
-      defaultTimeout: 30000,
+      defaultTimeout: 60000,
       maxRetries: 2,
       confidenceThreshold: 0.7,
       tools: ['pdf_processor', 'pdf_to_images', 'vision_models']
@@ -43,6 +48,18 @@ export class EstimateExtractorAgent extends Agent {
     
     super(config)
     this.visionProcessor = new VisionModelProcessor()
+
+    if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_api_key_here') {
+      this.openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY
+      })
+    }
+    
+    if (process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY !== 'your_anthropic_api_key_here') {
+      this.anthropic = new Anthropic({
+        apiKey: process.env.ANTHROPIC_API_KEY
+      })
+    }
   }
 
   get agentType(): AgentType {
@@ -62,8 +79,8 @@ export class EstimateExtractorAgent extends Agent {
       },
       {
         id: uuidv4(),
-        type: 'extract_fields',
-        input: null, // Will be populated with text
+        type: 'extract_fields_text',
+        input: null,
         context,
         status: 'pending' as const,
         createdAt: new Date(),
@@ -71,13 +88,12 @@ export class EstimateExtractorAgent extends Agent {
       }
     ]
 
-    // Add vision fallback task if strategy allows or if text extraction fails
     if (input.strategy === ExtractionStrategy.VISION_ONLY || 
         input.strategy === ExtractionStrategy.HYBRID ||
         input.strategy === ExtractionStrategy.FALLBACK) {
       tasks.push({
         id: uuidv4(),
-        type: 'vision_fallback',
+        type: 'extract_fields_vision',
         input: input.pdfBuffer,
         context,
         status: 'pending' as const,
@@ -86,66 +102,84 @@ export class EstimateExtractorAgent extends Agent {
       })
     }
 
+    const dependencies = new Map<string, string[]>()
+    dependencies.set(tasks[1].id, [tasks[0].id])
+    if (tasks.length > 2) {
+    }
+
     return {
       tasks,
-      dependencies: new Map([
-        [tasks[1].id, [tasks[0].id]] // extract_fields depends on extract_text
-      ]),
-      estimatedDuration: 15000, // 15 seconds
+      dependencies,
+      estimatedDuration: 30000,
       confidence: 0.8
     }
   }
 
   async act(input: EstimateExtractionInput, context: TaskContext): Promise<AgentResult<EstimateFieldExtractions>> {
-    this.log(LogLevel.INFO, 'extraction-start', 'Starting estimate data extraction')
+    this.log(LogLevel.INFO, 'extraction-start', `Starting estimate data extraction for task ${context.taskId}`)
     
     let textExtractionResult: string = ''
     let textConfidence = 0
+    let textResults: EstimateFieldExtractions | null = null
     let visionResults: EstimateFieldExtractions | null = null
     
     try {
-      // Step 1: Extract text from PDF
-      this.log(LogLevel.DEBUG, 'text-extraction', 'Extracting text from PDF')
+      this.log(LogLevel.DEBUG, 'text-extraction', 'Extracting text from PDF', { taskId: context.taskId })
       textExtractionResult = await PDFProcessor.extractText(input.pdfBuffer)
       textConfidence = this.calculateTextQuality(textExtractionResult)
       
       this.log(LogLevel.INFO, 'text-extracted', 
         `Text extraction completed. Quality score: ${textConfidence.toFixed(3)}`,
-        { textLength: textExtractionResult.length, quality: textConfidence }
+        { textLength: textExtractionResult.length, quality: textConfidence, taskId: context.taskId }
       )
 
-      // Step 2: Extract fields from text
-      let textResults: EstimateFieldExtractions | null = null
-      
-      if (textConfidence > 0.3) { // Only try text extraction if quality is reasonable
-        this.log(LogLevel.DEBUG, 'field-extraction-text', 'Extracting fields from text')
-        textResults = await this.extractFieldsFromText(textExtractionResult, context)
+      if (textConfidence > 0.3 && 
+          (input.strategy === ExtractionStrategy.TEXT_ONLY || 
+           input.strategy === ExtractionStrategy.HYBRID || 
+           input.strategy === ExtractionStrategy.FALLBACK)) {
+        this.log(LogLevel.DEBUG, 'field-extraction-text', 'Extracting fields from text', { taskId: context.taskId })
+        try {
+          textResults = await this.extractFieldsFromText(textExtractionResult, context)
+        } catch (textError) {
+          this.log(LogLevel.WARN, 'text-extraction-error', `Field extraction from text failed: ${textError}`, { taskId: context.taskId, error: textError })
+        }
       }
 
-      // Step 3: Vision fallback if needed
       const shouldUseVision = (
         input.strategy === ExtractionStrategy.VISION_ONLY ||
         input.strategy === ExtractionStrategy.HYBRID ||
-        (input.strategy === ExtractionStrategy.FALLBACK && (!textResults || this.getOverallConfidence(textResults) < 0.6))
+        (input.strategy === ExtractionStrategy.FALLBACK && (!textResults || this.getOverallConfidence(textResults) < this.config.confidenceThreshold))
       )
 
-      if (shouldUseVision && await PDFToImagesTool.isAvailable() && this.visionProcessor.isAvailable()) {
-        this.log(LogLevel.INFO, 'vision-fallback', 'Using vision models for extraction')
-        visionResults = await this.extractFieldsFromVision(input.pdfBuffer, context)
+      if (shouldUseVision) {
+        if (await PDFToImagesTool.isAvailable() && this.visionProcessor.isAvailable()) {
+          this.log(LogLevel.INFO, 'vision-fallback', 'Using vision models for extraction', { taskId: context.taskId })
+          try {
+            visionResults = await this.extractFieldsFromVision(input.pdfBuffer, context)
+          } catch (visionError) {
+            this.log(LogLevel.WARN, 'vision-extraction-error', `Field extraction from vision failed: ${visionError}`, { taskId: context.taskId, error: visionError })
+          }
+        } else {
+          this.log(LogLevel.WARN, 'vision-unavailable', 'Vision processing requested but tools are not available', { taskId: context.taskId })
+        }
       }
 
-      // Step 4: Combine results intelligently
+      if (!textResults && !visionResults) {
+        throw new Error('Both text and vision extraction failed to produce results.')
+      }
       const finalResults = this.combineExtractionResults(textResults, visionResults, textConfidence)
       
+      const overallConfidence = this.getOverallConfidence(finalResults)
       this.log(LogLevel.SUCCESS, 'extraction-complete', 
-        `Extraction completed with overall confidence: ${this.getOverallConfidence(finalResults).toFixed(3)}`
+        `Extraction completed with overall confidence: ${overallConfidence.toFixed(3)}`,
+        { taskId: context.taskId, overallConfidence }
       )
 
       return {
         data: finalResults,
         validation: await this.validate(finalResults, context),
-        processingTimeMs: 0, // Will be set by base class
-        model: 'hybrid'
+        processingTimeMs: 0,
+        model: visionResults && textResults ? 'hybrid' : (visionResults ? 'vision' : 'text')
       }
 
     } catch (error) {
@@ -159,42 +193,40 @@ export class EstimateExtractorAgent extends Agent {
     const warnings: string[] = []
     const suggestions: string[] = []
 
-    // Validate property address
-    if (!result.propertyAddress.value || result.propertyAddress.value.length < 10) {
+    if (!result.propertyAddress?.value || result.propertyAddress.value.length < 10) {
       errors.push('Property address is missing or too short')
-    } else if (!this.isValidAddress(result.propertyAddress.value)) {
+    } else if (result.propertyAddress.value && !this.isValidAddress(result.propertyAddress.value)) {
       warnings.push('Property address format may be incorrect')
     }
 
-    // Validate claim number
-    if (!result.claimNumber.value) {
+    if (!result.claimNumber?.value) {
       errors.push('Claim number is missing')
-    } else if (!this.isValidClaimNumber(result.claimNumber.value)) {
+    } else if (result.claimNumber.value && !this.isValidClaimNumber(result.claimNumber.value)) {
       warnings.push('Claim number format may be incorrect')
     }
 
-    // Validate insurance carrier
-    if (!result.insuranceCarrier.value) {
+    if (!result.insuranceCarrier?.value) {
       warnings.push('Insurance carrier is missing')
     }
 
-    // Validate RCV amount
-    if (!result.totalRCV.value || result.totalRCV.value <= 0) {
+    if (result.totalRCV?.value === null || result.totalRCV?.value === undefined || result.totalRCV.value <= 0) {
       warnings.push('Total RCV amount is missing or invalid')
     } else if (result.totalRCV.value > 1000000) {
-      warnings.push('Total RCV amount seems unusually high')
+      warnings.push('Total RCV amount seems unusually high ($${result.totalRCV.value})')
+    }
+    
+    if (!result.lineItems?.value || result.lineItems.value.length === 0) {
+      warnings.push('No line items extracted. This is unusual and might indicate an issue.')
     }
 
-    // Calculate overall confidence
     const overallConfidence = this.getOverallConfidence(result)
     
-    // Add suggestions based on confidence
-    if (overallConfidence < 0.8) {
-      suggestions.push('Consider manual review of extracted data')
+    if (overallConfidence < this.config.confidenceThreshold) {
+      suggestions.push(`Overall confidence (${overallConfidence.toFixed(2)}) is below threshold (${this.config.confidenceThreshold}). Manual review recommended.`)
     }
     
-    if (result.lineItems.value.length === 0) {
-      suggestions.push('No line items extracted - may need vision processing')
+    if (result.lineItems?.source === 'vision' || (!result.lineItems?.value && result.totalRCV?.value && result.totalRCV.value > 0) ){
+        suggestions.push('Line items may be incomplete or missing. Consider re-processing with vision or manual review if critical.')
     }
 
     return {
@@ -206,201 +238,305 @@ export class EstimateExtractorAgent extends Agent {
     }
   }
 
-  /**
-   * Extract fields from text using AI models
-   */
   private async extractFieldsFromText(text: string, context: TaskContext): Promise<EstimateFieldExtractions> {
-    this.log(LogLevel.DEBUG, 'ai-extraction-start', 'Starting AI field extraction from text')
+    this.log(LogLevel.DEBUG, 'ai-extraction-text-start', 'Starting AI field extraction from text', { taskId: context.taskId })
     
-    // Get AI configurations from database
-    const configs = await this.getAIConfigs([
+    const fieldConfigs = await this.getAIConfigs([
       'extract_estimate_address',
       'extract_estimate_claim', 
       'extract_estimate_carrier',
-      'extract_estimate_rcv'
+      'extract_estimate_rcv',
+      'extract_estimate_acv',
+      'extract_estimate_deductible',
+      'extract_estimate_date_of_loss'
     ])
 
-    // Extract fields in parallel where possible
-    const [address, claimNumber, carrier, rcv] = await Promise.all([
-      this.extractSingleField('propertyAddress', text, configs.extract_estimate_address),
-      this.extractSingleField('claimNumber', text, configs.extract_estimate_claim),
-      this.extractSingleField('insuranceCarrier', text, configs.extract_estimate_carrier),
-      this.extractSingleField('totalRCV', text, configs.extract_estimate_rcv)
+    // Extract fields in parallel
+    const [address, claimNumber, carrier, rcv, acv, deductible, dol] = await Promise.all([
+      this.extractSingleField('propertyAddress', text, fieldConfigs.extract_estimate_address, context),
+      this.extractSingleField('claimNumber', text, fieldConfigs.extract_estimate_claim, context),
+      this.extractSingleField('insuranceCarrier', text, fieldConfigs.extract_estimate_carrier, context),
+      this.extractSingleField('totalRCV', text, fieldConfigs.extract_estimate_rcv, context),
+      this.extractSingleField('totalACV', text, fieldConfigs.extract_estimate_acv, context),
+      this.extractSingleField('deductible', text, fieldConfigs.extract_estimate_deductible, context),
+      this.extractSingleField('dateOfLoss', text, fieldConfigs.extract_estimate_date_of_loss, context)
     ])
 
-    // Extract line items (more complex, separate call)
-    const lineItems = await this.extractLineItems(text)
+    const lineItems = await this.extractLineItems(text, context)
+    
+    const parseNumeric = (field: ExtractedField<string | null>): number | null => {
+      if (field.value === null || field.value === undefined || field.value.trim() === '') return null;
+      const num = parseFloat(field.value);
+      return isNaN(num) ? null : num;
+    };
+    
+    const parseDate = (field: ExtractedField<string | null>): Date | null => {
+      if (field.value === null || field.value === undefined || field.value.trim() === '') return null;
+      const date = new Date(field.value);
+      return isNaN(date.getTime()) ? null : date;
+    };
 
     return {
       propertyAddress: address,
       claimNumber: claimNumber,
       insuranceCarrier: carrier,
-      dateOfLoss: this.createExtractedField(null, 0.0, 'Date of loss not extracted from text', 'text'),
+      dateOfLoss: {
+        ...dol,
+        value: parseDate(dol)
+      },
       totalRCV: {
         ...rcv,
-        value: parseFloat(rcv.value) || 0
+        value: parseNumeric(rcv)
       },
-      totalACV: this.createExtractedField(0, 0.0, 'ACV not extracted', 'text'),
-      deductible: this.createExtractedField(0, 0.0, 'Deductible not extracted', 'text'),
+      totalACV: {
+        ...acv,
+        value: parseNumeric(acv)
+      },
+      deductible: {
+        ...deductible,
+        value: parseNumeric(deductible)
+      },
       lineItems: lineItems
     }
   }
 
-  /**
-   * Extract fields using vision models
-   */
   private async extractFieldsFromVision(pdfBuffer: Buffer, context: TaskContext): Promise<EstimateFieldExtractions> {
-    this.log(LogLevel.DEBUG, 'vision-extraction-start', 'Starting vision-based field extraction')
+    this.log(LogLevel.DEBUG, 'vision-extraction-start', 'Starting vision-based field extraction', { taskId: context.taskId })
     
-    // Convert PDF to images
-    const imageDataUrls = await PDFToImagesTool.convertPDFToDataURLs(pdfBuffer, {
-      dpi: 300,
-      format: 'jpg',
-      quality: 85
-    })
+    const imageDataUrls = await PDFToImagesTool.convertPDFToDataURLs(pdfBuffer, { dpi: 300, format: 'jpg', quality: 85 })
+    this.log(LogLevel.INFO, 'pdf-converted-vision', `PDF converted to ${imageDataUrls.length} images for vision processing`, { taskId: context.taskId })
 
-    this.log(LogLevel.INFO, 'pdf-converted', `PDF converted to ${imageDataUrls.length} images`)
+    const visionModel = this.anthropic ? 'anthropic' : (this.openai ? 'openai' : null)
+    if (!visionModel) {
+      throw new Error('No vision AI model (Anthropic or OpenAI) is configured and available.')
+    }
 
-    // Use vision model to extract all fields at once
     const visionConfig: VisionModelConfig = {
-      provider: 'anthropic', // Prefer Claude for document analysis
-      model: 'claude-3-5-sonnet-20241022',
+      provider: visionModel,
+      model: visionModel === 'anthropic' ? 'claude-3-5-sonnet-20241022' : 'gpt-4o',
       maxTokens: 2000,
       temperature: 0.1
     }
 
     const prompt = `
-Analyze these insurance estimate document images and extract the following information:
+Analyze these insurance estimate document images and extract the following information. Prioritize accuracy.
 
-1. Property Address (the actual property being repaired, not mailing address)
-2. Claim Number (complete number, may span multiple lines)
-3. Insurance Carrier/Company name
-4. Total RCV (Replacement Cost Value) amount
-5. Date of Loss (if visible)
-6. Total ACV (Actual Cash Value) amount (if different from RCV)
-7. Deductible amount
+1.  **Property Address**: The physical address of the property where the damage occurred. Exclude any mailing addresses for the insured or insurer if different.
+2.  **Claim Number**: The unique identifier assigned to this insurance claim.
+3.  **Insurance Carrier**: The name of the insurance company handling the claim.
+4.  **Total RCV (Replacement Cost Value)**: The total estimated cost to repair or replace the damaged property to its pre-loss condition, without deduction for depreciation.
+5.  **Total ACV (Actual Cash Value)**: The value of the property at the time of loss, considering depreciation. If not explicitly stated, it might be the same as RCV or RCV minus deductible/depreciation.
+6.  **Deductible Amount**: The amount the policyholder is responsible for paying before the insurance coverage applies.
+7.  **Date of Loss**: The date when the damage or loss occurred.
 
-Return the information in this exact JSON format:
+Return the information ONLY in this exact JSON format. Do not add any commentary before or after the JSON block:
 {
-  "propertyAddress": "full address",
-  "claimNumber": "complete claim number",
-  "insuranceCarrier": "company name",
-  "totalRCV": numeric_value_only,
-  "dateOfLoss": "YYYY-MM-DD or null",
-  "totalACV": numeric_value_only_or_null,
-  "deductible": numeric_value_only_or_null
+  "propertyAddress": "string_value_or_null",
+  "claimNumber": "string_value_or_null",
+  "insuranceCarrier": "string_value_or_null",
+  "totalRCV": numeric_value_or_null,
+  "totalACV": numeric_value_or_null,
+  "deductible": numeric_value_or_null,
+  "dateOfLoss": "YYYY-MM-DD_or_null"
 }
 
-Be precise and only extract what you can clearly see. Use null for missing values.
+If a field is not found or unclear, use null. For numeric fields, return only the number, no currency symbols or text.
     `
 
     const visionResult = await this.visionProcessor.analyzeImages(imageDataUrls, prompt, visionConfig)
-    
     this.log(LogLevel.INFO, 'vision-analysis-complete', 
-      `Vision analysis completed with confidence ${visionResult.confidence.toFixed(3)}`
+      `Vision analysis completed. Confidence: ${visionResult.confidence.toFixed(3)}, Model: ${visionResult.model}`,
+      { taskId: context.taskId, confidence: visionResult.confidence, model: visionResult.model }
     )
 
-    // Parse JSON response
     try {
-      const parsed = JSON.parse(visionResult.extractedText)
+      const parsed = JSON.parse(visionResult.extractedText.replace(/,(?=\s*\})/g, ''));
       
       return {
-        propertyAddress: this.createExtractedField(
-          parsed.propertyAddress, 
-          visionResult.confidence, 
-          'Extracted via vision model', 
-          'vision'
-        ),
-        claimNumber: this.createExtractedField(
-          parsed.claimNumber, 
-          visionResult.confidence, 
-          'Extracted via vision model', 
-          'vision'
-        ),
-        insuranceCarrier: this.createExtractedField(
-          parsed.insuranceCarrier, 
-          visionResult.confidence, 
-          'Extracted via vision model', 
-          'vision'
-        ),
-        dateOfLoss: this.createExtractedField(
-          parsed.dateOfLoss ? new Date(parsed.dateOfLoss) : null, 
-          visionResult.confidence * 0.8, 
-          'Extracted via vision model', 
-          'vision'
-        ),
-        totalRCV: this.createExtractedField(
-          parsed.totalRCV || 0, 
-          visionResult.confidence, 
-          'Extracted via vision model', 
-          'vision'
-        ),
-        totalACV: this.createExtractedField(
-          parsed.totalACV || 0, 
-          visionResult.confidence * 0.9, 
-          'Extracted via vision model', 
-          'vision'
-        ),
-        deductible: this.createExtractedField(
-          parsed.deductible || 0, 
-          visionResult.confidence * 0.9, 
-          'Extracted via vision model', 
-          'vision'
-        ),
-        lineItems: this.createExtractedField(
-          [], 
-          0.3, 
-          'Line items not extracted via vision', 
-          'vision'
-        )
+        propertyAddress: this.createExtractedField(parsed.propertyAddress, visionResult.confidence, 'Extracted via vision', 'vision'),
+        claimNumber: this.createExtractedField(parsed.claimNumber, visionResult.confidence, 'Extracted via vision', 'vision'),
+        insuranceCarrier: this.createExtractedField(parsed.insuranceCarrier, visionResult.confidence, 'Extracted via vision', 'vision'),
+        dateOfLoss: this.createExtractedField(parsed.dateOfLoss ? new Date(parsed.dateOfLoss) : null, visionResult.confidence * 0.8, 'Extracted via vision', 'vision'),
+        totalRCV: this.createExtractedField(parsed.totalRCV, visionResult.confidence, 'Extracted via vision', 'vision'),
+        totalACV: this.createExtractedField(parsed.totalACV, visionResult.confidence * 0.9, 'Extracted via vision', 'vision'),
+        deductible: this.createExtractedField(parsed.deductible, visionResult.confidence * 0.9, 'Extracted via vision', 'vision'),
+        lineItems: this.createExtractedField([], 0.3, 'Line items not extracted by this vision prompt', 'vision')
       }
     } catch (error) {
-      this.log(LogLevel.WARN, 'vision-parse-failed', 'Failed to parse vision model JSON response')
-      throw new Error(`Failed to parse vision model response: ${error}`)
+      this.log(LogLevel.WARN, 'vision-parse-failed', `Failed to parse vision model JSON response: ${visionResult.extractedText}. Error: ${error}`)
+      throw new Error(`Failed to parse vision model response. Raw: ${visionResult.extractedText}. Error: ${error}`)
     }
   }
 
-  /**
-   * Helper methods
-   */
+  private async getAIConfigs(stepNames: string[]): Promise<Record<string, AIConfig>> {
+    this.log(LogLevel.DEBUG, 'get-ai-configs', `Fetching AI configs for steps: ${stepNames.join(', ')}`)
+    const configs: Record<string, AIConfig> = {}
+    for (const stepName of stepNames) {
+      const { data, error } = await this.supabase
+        .from('ai_configs')
+        .select('*')
+        .eq('step_name', stepName)
+        .single()
+
+      if (error) {
+        this.log(LogLevel.WARN, 'config-fetch-error', `Error fetching AI config for ${stepName}: ${error.message}`)
+        configs[stepName] = { step_name: stepName, prompt: '', model_provider: 'openai', model_name: 'gpt-3.5-turbo' } 
+      } else if (data) {
+        configs[stepName] = data as AIConfig
+      } else {
+         configs[stepName] = { step_name: stepName, prompt: `Extract ${stepName}`, model_provider: 'openai', model_name: 'gpt-3.5-turbo' } 
+      }
+    }
+    return configs
+  }
+
+  private async extractSingleField(fieldName: string, text: string, config: AIConfig, context: TaskContext): Promise<ExtractedField<string | null>> {
+    if (!config || !config.prompt) {
+      this.log(LogLevel.WARN, 'missing-config', `No AI config or prompt for field: ${fieldName}`)
+      return this.createExtractedField(null, 0.1, `Missing AI configuration for ${fieldName}`, 'text');
+    }
+
+    const fullPrompt = `${config.prompt}\n\nDocument text:\n${text}`
+    this.log(LogLevel.DEBUG, 'extract-single-field', `Extracting field ${fieldName} with ${config.model_provider}/${config.model_name}`, { taskId: context.taskId })
+    
+    try {
+      const aiResponse = await this.callAI(config, fullPrompt, context.taskId || 'unknown-task')
+      const trimmedResponse = aiResponse.trim();
+      // Basic confidence: length of response, presence of non-whitespace
+      const confidence = trimmedResponse.length > 0 ? (trimmedResponse.length / (config.prompt.length * 0.2) + 0.5) : 0.2;
+      return this.createExtractedField(trimmedResponse.length > 0 ? trimmedResponse : null, Math.min(0.9, confidence), `Extracted via ${config.model_provider}`, 'text')
+    } catch (error) {
+      this.log(LogLevel.ERROR, 'ai-call-error', `AI call failed for ${fieldName}: ${error}`, { error })
+      return this.createExtractedField(null, 0.0, `AI extraction failed for ${fieldName}: ${error}`, 'text')
+    }
+  }
+
+  private async extractLineItems(text: string, context: TaskContext): Promise<ExtractedField<any[]>> {
+    this.log(LogLevel.DEBUG, 'extract-line-items', 'Extracting line items from text', { taskId: context.taskId })
+    const config = (await this.getAIConfigs(['extract_line_items'])).extract_line_items
+    
+    if (!config || !config.prompt) {
+      this.log(LogLevel.WARN, 'missing-line-item-config', 'AI config for line item extraction is missing.')
+      return this.createExtractedField([], 0.1, 'Missing AI configuration for line items', 'text');
+    }
+
+    const fullPrompt = `${config.prompt}\n\nDocument text:\n${text}`;
+
+    try {
+      const aiResponse = await this.callAI(config, fullPrompt, context.taskId || 'unknown-task')
+      const lineItems = JSON.parse(aiResponse)
+      const confidence = Array.isArray(lineItems) && lineItems.length > 0 ? 0.8 : 0.4;
+      return this.createExtractedField(lineItems, confidence, `Extracted via ${config.model_provider}`, 'text')
+    } catch (error) {
+      this.log(LogLevel.ERROR, 'line-item-parse-error', `Failed to parse line items JSON: ${error}. Raw: ${text.substring(0,100)}`, { error })
+      const lines = text.split('\n').filter(l => l.trim().length > 5 && /\d/.test(l) && /[a-zA-Z]/.test(l));
+      if(lines.length > 0) {
+        this.log(LogLevel.WARN, 'line-item-fallback', 'Falling back to simple list extraction for line items');
+        return this.createExtractedField(lines.map(l => ({description: l.trim()})), 0.3, 'Fallback list extraction', 'text');
+      }
+      return this.createExtractedField([], 0.0, `Line item JSON parsing failed: ${error}`, 'text')
+    }
+  }
+
+  private async callAI(config: AIConfig, prompt: string, jobId: string): Promise<string> {
+    this.log(LogLevel.DEBUG, 'ai-call-start', `Calling ${config.model_provider} model ${config.model_name}`)
+    const startTime = Date.now()
+
+    try {
+      let responseText = '';
+      if (config.model_provider === 'openai' && this.openai) {
+        const response = await this.openai.chat.completions.create({
+          model: config.model_name || 'gpt-3.5-turbo',
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: config.max_tokens || 1000,
+          temperature: config.temperature || 0.2,
+        });
+        responseText = response.choices[0]?.message?.content || ''
+      } else if (config.model_provider === 'anthropic' && this.anthropic) {
+        const response = await this.anthropic.messages.create({
+          model: config.model_name || 'claude-3-haiku-20240307',
+          max_tokens: config.max_tokens || 1000,
+          temperature: config.temperature || 0.2,
+          messages: [{ role: 'user', content: prompt }]
+        });
+        responseText = response.content[0]?.type === 'text' ? response.content[0].text : ''
+      } else {
+        throw new Error(`Unsupported AI provider or client not initialized: ${config.model_provider}`)
+      }
+      
+      const duration = Date.now() - startTime
+      this.log(LogLevel.INFO, 'ai-call-success', 
+        `${config.model_provider} call completed in ${duration}ms. Output length: ${responseText.length}`,
+        { duration, outputLength: responseText.length, provider: config.model_provider, model: config.model_name }
+      )
+      return responseText;
+
+    } catch (error) {
+      const duration = Date.now() - startTime
+      this.log(LogLevel.ERROR, 'ai-call-error', 
+        `${config.model_provider} call failed after ${duration}ms: ${error}`,
+        { duration, error, provider: config.model_provider, model: config.model_name }
+      )
+      throw error
+    }
+  }
+
   private createExtractedField<T>(
     value: T, 
     confidence: number, 
     rationale: string, 
-    source: 'text' | 'vision' | 'hybrid' | 'fallback'
+    source: 'text' | 'vision' | 'hybrid' | 'fallback',
+    attempts: number = 1
   ): ExtractedField<T> {
     return {
       value,
-      confidence,
+      confidence: Math.max(0, Math.min(1, confidence)),
       rationale,
       source,
-      attempts: 1
+      attempts
     }
   }
 
   private calculateTextQuality(text: string): number {
-    if (!text || text.length < 100) return 0.1
+    if (!text || text.trim().length < 100) return 0.1
     
-    // Calculate ratio of printable characters
-    const printableChars = text.replace(/[^\x20-\x7E]/g, '').length
+    const printableChars = text.replace(/[^\x20-\x7E\n\r\t]/g, '').length
     const printableRatio = printableChars / text.length
     
-    // Look for document structure indicators
-    const hasStructure = /address|claim|total|amount|\$|insurance/i.test(text)
+    const structureIndicators = [
+        /address/i, /claim/i, /total/i, /amount/i, /\$/i, /insurance/i, /estimate/i, /policy/i, /date of loss/i, /summary/i, /details/i,
+        /\b(SF|LF|EA|SQ)\b/i
+    ];
+    let structureScore = 0;
+    for (const indicator of structureIndicators) {
+        if (indicator.test(text)) {
+            structureScore += 0.05;
+        }
+    }
+    structureScore = Math.min(0.5, structureScore);
+
+    const wordCount = text.trim().split(/\s+/).length;
+    const wordScore = Math.min(0.2, wordCount / 2000);
     
-    return Math.min(0.9, printableRatio * 0.7 + (hasStructure ? 0.3 : 0))
+    return Math.min(0.95, printableRatio * 0.6 + structureScore + wordScore)
   }
 
-  private getOverallConfidence(results: EstimateFieldExtractions): number {
-    const fields = [
+  private getOverallConfidence(results: EstimateFieldExtractions | null): number {
+    if (!results) return 0;
+
+    const fields: Array<ExtractedField<any> | undefined> = [
       results.propertyAddress,
       results.claimNumber,
       results.insuranceCarrier,
-      results.totalRCV
-    ]
+      results.totalRCV,
+      results.lineItems
+    ];
     
-    const totalConfidence = fields.reduce((sum, field) => sum + field.confidence, 0)
-    return totalConfidence / fields.length
+    const validFields = fields.filter(f => f && f.value !== null && f.value !== undefined && f.confidence > 0.1);
+    if (validFields.length === 0) return 0.1;
+
+    const totalConfidence = validFields.reduce((sum, field) => sum + (field?.confidence || 0), 0)
+    return totalConfidence / validFields.length
   }
 
   private combineExtractionResults(
@@ -408,53 +544,66 @@ Be precise and only extract what you can clearly see. Use null for missing value
     visionResults: EstimateFieldExtractions | null,
     textQuality: number
   ): EstimateFieldExtractions {
-    // If only one source available, use it
-    if (!textResults) return visionResults!
-    if (!visionResults) return textResults
+    if (!textResults && !visionResults) {
+        this.log(LogLevel.WARN, 'combine-results-both-null', 'Both text and vision results are null. Returning empty structure.');
+        const emptyField = (rationale: string) => this.createExtractedField(null, 0, rationale, 'fallback');
+        return {
+            propertyAddress: emptyField('No data from text or vision'),
+            claimNumber: emptyField('No data from text or vision'),
+            insuranceCarrier: emptyField('No data from text or vision'),
+            dateOfLoss: emptyField('No data from text or vision'),
+            totalRCV: this.createExtractedField(0, 0, 'No data from text or vision', 'fallback'),
+            totalACV: this.createExtractedField(0, 0, 'No data from text or vision', 'fallback'),
+            deductible: this.createExtractedField(0, 0, 'No data from text or vision', 'fallback'),
+            lineItems: this.createExtractedField([], 0, 'No data from text or vision', 'fallback'),
+        };
+    }
+    if (!textResults) return visionResults!;
+    if (!visionResults) return textResults!;
     
-    // Combine results, preferring higher confidence values
     return {
       propertyAddress: this.selectBestField(textResults.propertyAddress, visionResults.propertyAddress),
       claimNumber: this.selectBestField(textResults.claimNumber, visionResults.claimNumber),
       insuranceCarrier: this.selectBestField(textResults.insuranceCarrier, visionResults.insuranceCarrier),
       dateOfLoss: this.selectBestField(textResults.dateOfLoss, visionResults.dateOfLoss),
-      totalRCV: this.selectBestField(textResults.totalRCV, visionResults.totalRCV),
-      totalACV: this.selectBestField(textResults.totalACV, visionResults.totalACV),
-      deductible: this.selectBestField(textResults.deductible, visionResults.deductible),
-      lineItems: textResults.lineItems // Prefer text for line items
+      totalRCV: this.selectBestField(textResults.totalRCV, visionResults.totalRCV, (v) => typeof v === 'number' && v > 0),
+      totalACV: this.selectBestField(textResults.totalACV, visionResults.totalACV, (v) => typeof v === 'number'),
+      deductible: this.selectBestField(textResults.deductible, visionResults.deductible, (v) => typeof v === 'number'),
+      lineItems: (textQuality > 0.6 && textResults.lineItems.value.length > 0) || visionResults.lineItems.value.length === 0 
+                  ? { ...textResults.lineItems, source: 'hybrid' as const } 
+                  : { ...visionResults.lineItems, source: 'hybrid' as const }
     }
   }
 
-  private selectBestField<T>(field1: ExtractedField<T>, field2: ExtractedField<T>): ExtractedField<T> {
+  private selectBestField<T>(
+    field1: ExtractedField<T>,
+    field2: ExtractedField<T>,
+    valueValidator?: (value: T) => boolean
+  ): ExtractedField<T> {
+    const v1Valid = valueValidator ? valueValidator(field1.value) : true;
+    const v2Valid = valueValidator ? valueValidator(field2.value) : true;
+
+    if (v1Valid && !v2Valid) return { ...field1, source: 'hybrid' as const };
+    if (!v1Valid && v2Valid) return { ...field2, source: 'hybrid' as const };
+
     if (field1.confidence > field2.confidence) {
       return { ...field1, source: 'hybrid' as const }
-    } else {
+    } else if (field2.confidence > field1.confidence) {
       return { ...field2, source: 'hybrid' as const }
+    } else {
+      return field1.value !== null && field1.value !== undefined ? 
+        { ...field1, source: 'hybrid' as const } : 
+        { ...field2, source: 'hybrid' as const };
     }
   }
 
-  // Validation helpers
-  private isValidAddress(address: string): boolean {
-    return /\d+.*[A-Za-z].*\d{5}/.test(address) // Basic address pattern
+  private isValidAddress(address: string | null): boolean {
+    if (!address) return false;
+    return /\d+.*[A-Za-z].*(\d{5}|[A-Z]{2}\s\d{5})/.test(address)
   }
 
-  private isValidClaimNumber(claimNumber: string): boolean {
-    return /^[A-Za-z0-9\-]{6,}$/.test(claimNumber) // At least 6 chars, alphanumeric with hyphens
-  }
-
-  // Placeholder methods (to be implemented)
-  private async getAIConfigs(stepNames: string[]): Promise<Record<string, any>> {
-    // Implementation would fetch from database
-    return {}
-  }
-
-  private async extractSingleField(fieldName: string, text: string, config: any): Promise<ExtractedField<string>> {
-    // Implementation would call AI model
-    return this.createExtractedField('', 0.5, 'Placeholder', 'text')
-  }
-
-  private async extractLineItems(text: string): Promise<ExtractedField<any[]>> {
-    // Implementation would extract line items
-    return this.createExtractedField([], 0.5, 'Placeholder', 'text')
+  private isValidClaimNumber(claimNumber: string | null): boolean {
+    if (!claimNumber) return false;
+    return /^[A-Za-z0-9\-]{5,50}$/.test(claimNumber)
   }
 } 

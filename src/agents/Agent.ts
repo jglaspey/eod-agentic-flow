@@ -8,10 +8,13 @@ import {
   Tool,
   AgentType,
   LogLevel,
-  AgentLog
+  AgentLog,
+  AIConfig
 } from './types'
 import { logStreamer } from '@/lib/log-streamer'
 import { v4 as uuidv4 } from 'uuid'
+import { OpenAI } from 'openai'
+import { Anthropic } from '@anthropic-ai/sdk'
 
 /**
  * Abstract base class for all agents in the system.
@@ -21,9 +24,17 @@ export abstract class Agent {
   protected config: AgentConfig
   protected tools: Map<string, Tool> = new Map()
   protected logs: AgentLog[] = []
+  protected openai: OpenAI | null = null
+  protected anthropic: Anthropic | null = null
 
   constructor(config: AgentConfig) {
     this.config = config
+    if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_api_key_here') {
+      this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+    }
+    if (process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY !== 'your_anthropic_api_key_here') {
+      this.anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+    }
     this.log(LogLevel.INFO, 'agent-initialized', `${config.name} v${config.version} initialized`)
   }
 
@@ -56,8 +67,9 @@ export abstract class Agent {
     
     let lastError: Error | null = null
     let attempt = 0
+    const allowedRetries = context.maxRetries ?? this.config.maxRetries; // Fallback to agent config if not provided
     
-    while (attempt <= context.maxRetries) {
+    while (attempt <= allowedRetries) {
       try {
         // Plan the execution
         this.log(LogLevel.DEBUG, 'planning-start', `Planning execution attempt ${attempt + 1}`)
@@ -99,7 +111,7 @@ export abstract class Agent {
             { validation }
           )
           
-          if (attempt < context.maxRetries) {
+          if (attempt < allowedRetries) {
             await this.waitForRetry(attempt)
             attempt++
             continue
@@ -119,7 +131,7 @@ export abstract class Agent {
           { error: lastError.message, stack: lastError.stack }
         )
         
-        if (attempt < context.maxRetries) {
+        if (attempt < allowedRetries) {
           await this.waitForRetry(attempt)
           attempt++
         } else {
@@ -299,5 +311,77 @@ export abstract class Agent {
   clearLogs(): void {
     this.logs = []
     this.log(LogLevel.DEBUG, 'logs-cleared', 'Agent logs cleared')
+  }
+
+  /**
+   * Helper – send a prompt to an LLM according to an AIConfig
+   * This method is now part of the base Agent class for all agents to use.
+   */
+  protected async callAI(
+    config: AIConfig,
+    prompt: string,
+    jobId: string, // Retained jobId as it's often useful for logging/context in AI calls
+    agentTypeOverride?: AgentType // Optional override for logging, defaults to this.agentType
+  ): Promise<string> {
+    const agentTypeForLog = agentTypeOverride || this.agentType;
+    this.log(LogLevel.DEBUG, 'ai-call-start', 
+      `Calling ${config.model_provider} model ${config.model_name} for job ${jobId}`,
+      { agentType: agentTypeForLog, provider: config.model_provider, model: config.model_name }
+    );
+    const startTime = Date.now();
+    try {
+      let responseText = '';
+      const messages = [{ role: 'user' as const, content: prompt }];
+
+      if (config.model_provider === 'openai' && this.openai) {
+        const response = await this.openai.chat.completions.create({
+          model: config.model_name || 'gpt-4-turbo-preview',
+          messages: messages,
+          max_tokens: config.max_tokens || 1000,
+          temperature: config.temperature || 0.5,
+          response_format: config.json_mode ? { type: "json_object" } : undefined,
+        });
+        responseText = response.choices[0]?.message?.content || '';
+      } else if (config.model_provider === 'anthropic' && this.anthropic) {
+        // Anthropic system prompt needs to be outside the messages array if used.
+        // If json_mode is true, Claude needs specific prompting for JSON output.
+        let systemPrompt: string | undefined = undefined;
+        if (config.json_mode) {
+            // This is a generic way to ask for JSON. Specific instructions in the main prompt are better.
+            systemPrompt = "Your response MUST be in JSON format."; 
+        }
+
+        const response = await this.anthropic.messages.create({
+          model: config.model_name || 'claude-3-sonnet-20240229',
+          max_tokens: config.max_tokens || 1000,
+          temperature: config.temperature || 0.5,
+          system: systemPrompt, 
+          messages: messages
+        });
+        responseText = Array.isArray(response.content) && response.content[0]?.type === 'text' ? response.content[0].text : '';
+      } else {
+        throw new Error(`Unsupported AI provider or client not initialized: ${config.model_provider}`);
+      }
+      
+      const duration = Date.now() - startTime;
+      this.log(LogLevel.INFO, 'ai-call-success', 
+        `${config.model_provider} call for ${jobId} completed in ${duration}ms. Output length: ${responseText.length}`,
+        { agentType: agentTypeForLog, duration, outputLength: responseText.length, provider: config.model_provider, model: config.model_name }
+      );
+      return responseText;
+
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      this.log(LogLevel.ERROR, 'ai-call-error', 
+        `${config.model_provider} call for ${jobId} failed after ${duration}ms: ${error.message}`,
+        { agentType: agentTypeForLog, duration, error: error.toString(), provider: config.model_provider, model: config.model_name }
+      );
+      throw error;
+    }
+  }
+
+  // Add public getter for config
+  public getConfig(): AgentConfig {
+    return this.config;
   }
 } 

@@ -16,13 +16,20 @@ export interface JobData {
   insurance_carrier?: string
   date_of_loss?: string
   total_rcv?: number
+  total_acv?: number;
+  deductible?: number;
   roof_area_squares?: number
   eave_length?: number
   rake_length?: number
   ridge_hip_length?: number
   valley_length?: number
   stories?: number
-  pitch?: string
+  pitch?: string;
+  estimate_confidence?: number;
+  roof_report_confidence?: number;
+  supervisor_outcome?: string;
+  supervisor_recommendations?: string;
+  error_message?: string;
 }
 
 export interface SupplementItem {

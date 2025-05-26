@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
 import { getSupabaseClient } from '@/lib/supabase'
-import { AIOrchestrator } from '@/lib/ai-orchestrator'
+import { OrchestrationAgent } from '@/agents/OrchestrationAgent'
+import { SupervisorAgent } from '@/agents/SupervisorAgent'
+import { TaskContext, JobStatus, EstimateLineItem, GeneratedSupplementItem, OrchestrationOutput, SupervisorReport } from '@/agents/types'
 import { logStreamer } from '@/lib/log-streamer'
-import { SupplementItem, EstimateData, RoofData } from '@/types'
+import { SupplementItem, EstimateData, RoofData, LineItem } from '@/types'
 import { generateAndSaveReport } from '@/lib/report-generator'
 
 export async function POST(request: NextRequest) {
@@ -18,17 +20,17 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData()
     const estimateFile = formData.get('estimate') as File
-    const roofReportFile = formData.get('roofReport') as File
+    const roofReportFile = formData.get('roofReport') as File | null
 
-    if (!estimateFile || !roofReportFile) {
+    if (!estimateFile) {
       return NextResponse.json(
-        { error: 'Both files are required' },
+        { error: 'Estimate file is required' },
         { status: 400 }
       )
     }
 
     // Validate file types
-    if (estimateFile.type !== 'application/pdf' || roofReportFile.type !== 'application/pdf') {
+    if (estimateFile.type !== 'application/pdf' || (roofReportFile && roofReportFile.type !== 'application/pdf')) {
       return NextResponse.json(
         { error: 'Only PDF files are allowed' },
         { status: 400 }
@@ -38,25 +40,8 @@ export async function POST(request: NextRequest) {
     const jobId = uuidv4()
     const startTime = Date.now()
 
-    // Initialize Supabase client
     const supabase = getSupabaseClient()
 
-    // Test database connection
-    const { data: testData, error: testError } = await supabase
-      .from('jobs')
-      .select('count')
-      .limit(1)
-      .single()
-
-    if (testError) {
-      console.error('Database connection error:', testError)
-      return NextResponse.json(
-        { error: 'Database connection failed. Please check your Supabase configuration.' },
-        { status: 500 }
-      )
-    }
-
-    // Create job record
     const { error: jobError } = await supabase
       .from('jobs')
       .insert({
@@ -66,19 +51,19 @@ export async function POST(request: NextRequest) {
       })
 
     if (jobError) {
-      console.error('Database error:', jobError)
+      console.error('Database error creating job:', jobError)
       return NextResponse.json(
         { error: `Failed to create job record: ${jobError.message}` },
         { status: 500 }
       )
     }
 
-    // Process files with real AI analysis
-    processFilesAsync(jobId, estimateFile, roofReportFile, startTime)
+    // Process files with the new OrchestrationAgent
+    processFilesWithNewAgent(jobId, estimateFile, roofReportFile, startTime)
 
     return NextResponse.json({ jobId })
   } catch (error) {
-    console.error('API error:', error)
+    console.error('API error in POST /api/process:', error)
     return NextResponse.json(
       { error: `Internal server error: ${error instanceof Error ? error.message : 'Unknown error'}` },
       { status: 500 }
@@ -86,278 +71,250 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function completeTestJob(jobId: string) {
-  const supabase = getSupabaseClient()
-  
-  try {
-    // Add test job data
-    await supabase
-      .from('job_data')
-      .insert({
-        id: uuidv4(),
-        job_id: jobId,
-        property_address: '123 Test Street, Sample City, ST 12345',
-        claim_number: 'TEST-2024-001',
-        insurance_carrier: 'Test Insurance Co.',
-        total_rcv: 25000.00,
-        roof_area_squares: 32.5,
-        eave_length: 150.0,
-        rake_length: 120.0,
-        ridge_hip_length: 85.0,
-        valley_length: 45.0,
-        stories: 2,
-        pitch: '6/12'
-      })
-
-    // Add test supplement items
-    await supabase
-      .from('supplement_items')
-      .insert([
-        {
-          id: uuidv4(),
-          job_id: jobId,
-          line_item: 'Gutter Apron',
-          xactimate_code: 'RFG_GAPRN',
-          quantity: 150.0,
-          unit: 'LF',
-          reason: 'Missing gutter apron based on eave measurements',
-          confidence_score: 0.9,
-          calculation_details: 'Calculated from eave length measurements'
-        },
-        {
-          id: uuidv4(),
-          job_id: jobId,
-          line_item: 'Drip Edge',
-          xactimate_code: 'RFG_DRPEDG',
-          quantity: 270.0,
-          unit: 'LF',
-          reason: 'Missing drip edge for eave and rake protection',
-          confidence_score: 0.85,
-          calculation_details: 'Calculated from eave + rake length measurements'
-        }
-      ])
-
-    // Mark job as completed
-    await supabase
-      .from('jobs')
-      .update({
-        status: 'completed',
-        processing_time_ms: 2000
-      })
-      .eq('id', jobId)
-
-  } catch (error) {
-    console.error('Test job completion error:', error)
-    
-    // Mark job as failed
-    await supabase
-      .from('jobs')
-      .update({ status: 'failed' })
-      .eq('id', jobId)
-  }
-}
-
-async function processFilesAsync(
+async function processFilesWithNewAgent(
   jobId: string,
   estimateFile: File,
-  roofReportFile: File,
+  roofReportFile: File | null,
   startTime: number
 ) {
-  console.log(`[${jobId}] processFilesAsync: Started.`);
-  logStreamer.logStep(jobId, 'job-started', 'Job processing started')
+  console.log(`[${jobId}] processFilesWithNewAgent: Started.`);
+  logStreamer.logStep(jobId, 'job-started', 'Job processing started with new agent system');
   const supabase = getSupabaseClient();
-  let currentStatus = 'processing';
+  let finalJobStatus: JobStatus = JobStatus.IN_PROGRESS;
   let detailedErrorMessage: string | null = null;
-  let processingStep = 'initialization';
-  let estimateData: EstimateData | null = null;
-  let roofData: RoofData | null = null;
-  let supplementItems: SupplementItem[] = [];
+  let orchestrationOutput: OrchestrationOutput | null = null;
+  let supervisionReport: SupervisorReport | null = null;
 
   try {
-    processingStep = 'buffer_conversion';
-    console.log(`[${jobId}] processFilesAsync: Converting files to buffers...`);
-    logStreamer.logStep(jobId, processingStep, 'Converting uploaded files to buffers')
-    const estimateBuffer = Buffer.from(await estimateFile.arrayBuffer());
-    const roofReportBuffer = Buffer.from(await roofReportFile.arrayBuffer());
-    console.log(`[${jobId}] processFilesAsync: File buffers created.`);
+    logStreamer.logStep(jobId, 'buffer_conversion', 'Converting uploaded files to buffers');
+    const estimatePdfBuffer = Buffer.from(await estimateFile.arrayBuffer());
+    const roofReportPdfBuffer = roofReportFile ? Buffer.from(await roofReportFile.arrayBuffer()) : undefined;
 
-    processingStep = 'ai_orchestrator_init';
-    console.log(`[${jobId}] processFilesAsync: Initializing AIOrchestrator...`);
-    const orchestrator = new AIOrchestrator(jobId);
-    logStreamer.logStep(jobId, processingStep, 'AIOrchestrator initialized')
-    console.log(`[${jobId}] processFilesAsync: AIOrchestrator initialized.`);
+    const orchestrationAgent = new OrchestrationAgent();
+    const agentConfig = orchestrationAgent.getConfig();
 
+    const initialTaskContext: TaskContext = {
+      jobId,
+      taskId: uuidv4(),
+      priority: 1,
+      timeoutMs: agentConfig.defaultTimeout,
+      maxRetries: agentConfig.maxRetries,
+      retryCount: 0
+    };
 
-    try {
-      processingStep = 'estimate_extraction';
-      console.log(`[${jobId}] processFilesAsync: Attempting to extract estimate data...`);
-      logStreamer.logStep(jobId, processingStep, 'Extracting estimate PDF')
-      estimateData = await orchestrator.extractEstimateData(estimateBuffer);
-      console.log(`[${jobId}] processFilesAsync: Estimate data extraction successful:`, estimateData);
-    } catch (e: any) {
-      console.error(`[${jobId}] processFilesAsync: Error extracting estimate data at step ${processingStep}:`, e);
-      detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + '; ' : '') + `Estimate extraction failed: ${e.message}`;
-    }
-
-    try {
-      processingStep = 'roof_report_extraction';
-      console.log(`[${jobId}] processFilesAsync: Attempting to extract roof data...`);
-      logStreamer.logStep(jobId, processingStep, 'Extracting roof report PDF')
-      roofData = await orchestrator.extractRoofData(roofReportBuffer);
-      console.log(`[${jobId}] processFilesAsync: Roof data extraction successful:`, roofData);
-    } catch (e: any) {
-      console.error(`[${jobId}] processFilesAsync: Error extracting roof data at step ${processingStep}:`, e);
-      detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + '; ' : '') + `Roof report extraction failed: ${e.message}`;
-    }
-
-    if (estimateData && roofData) {
-      try {
-        processingStep = 'discrepancy_analysis';
-        console.log(`[${jobId}] processFilesAsync: Attempting to analyze discrepancies...`);
-        logStreamer.logStep(jobId, processingStep, 'Analyzing discrepancies')
-        const analysisResult = await orchestrator.analyzeDiscrepancies(estimateData, roofData);
-        console.log(`[${jobId}] processFilesAsync: Discrepancy analysis successful.`);
-        
-        processingStep = 'supplement_generation';
-        console.log(`[${jobId}] processFilesAsync: Attempting to generate supplement items...`);
-        logStreamer.logStep(jobId, processingStep, 'Generating supplement items')
-        supplementItems = await orchestrator.generateSupplementItems(analysisResult);
-        console.log(`[${jobId}] processFilesAsync: Supplement items generation successful. Count: ${supplementItems.length}`);
-      } catch (e: any) {
-        console.error(`[${jobId}] processFilesAsync: Error during analysis/supplement generation at step ${processingStep}:`, e);
-        detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + '; ' : '') + `Analysis/Supplement generation failed: ${e.message}`;
-      }
+    logStreamer.logStep(jobId, 'orchestration_start', 'OrchestrationAgent processing started');
+    const orchestrationResult = await orchestrationAgent.execute(
+      { estimatePdfBuffer, roofReportPdfBuffer, jobId },
+      initialTaskContext
+    );
+    orchestrationOutput = orchestrationResult.data;
+    
+    if (orchestrationOutput) {
+        finalJobStatus = orchestrationOutput.status;
+        detailedErrorMessage = orchestrationOutput.errors.join('; ');
     } else {
-      processingStep = 'data_validation';
-      const missingDataError = !estimateData && !roofData ? 'Both estimate and roof data extraction failed.' 
-                             : !estimateData ? 'Estimate data extraction failed.' 
-                             : 'Roof data extraction failed.';
-      console.warn(`[${jobId}] processFilesAsync: Skipping analysis due to missing data: ${missingDataError}`);
-      detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + '; ' : '') + `${missingDataError} Cannot proceed with full analysis.`;
+        finalJobStatus = JobStatus.FAILED;
+        detailedErrorMessage = "Orchestration resulted in null output.";
+        logStreamer.logError(jobId, 'orchestration_null_output', detailedErrorMessage);
     }
 
-    processingStep = 'job_data_insertion';
-    console.log(`[${jobId}] processFilesAsync: Preparing to insert into job_data. Current error: ${detailedErrorMessage}`);
-    logStreamer.logStep(jobId, processingStep, 'Saving job data to database')
-    const jobDataToInsert = {
+    logStreamer.logStep(jobId, 'orchestration_complete', `OrchestrationAgent processing finished with status: ${finalJobStatus}`);
+
+    if (finalJobStatus !== JobStatus.FAILED && orchestrationResult) {
+        const supervisorAgent = new SupervisorAgent();
+        const supervisorContext: TaskContext = {
+            jobId,
+            taskId: uuidv4(),
+            parentTaskId: initialTaskContext.taskId,
+            priority: 0,
+            maxRetries: 0,
+            retryCount: 0
+        };
+        logStreamer.logStep(jobId, 'supervision_start', 'SupervisorAgent processing started');
+        const supervisionAgentResult = await supervisorAgent.execute({ jobId, orchestrationOutput }, supervisorContext);
+        supervisionReport = supervisionAgentResult.data;
+
+        if (supervisionReport) {
+            logStreamer.logStep(jobId, 'supervision_complete', `SupervisorAgent finished. Outcome: ${supervisionReport.finalStatus}`);
+            if (supervisionReport.finalStatus === JobStatus.FAILED || supervisionReport.finalStatus === JobStatus.FAILED_PARTIAL) {
+                finalJobStatus = supervisionReport.finalStatus;
+                detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + "; " : "") + "Supervision rejected due to critical issues.";
+            }
+        } else {
+            logStreamer.logError(jobId, 'supervision_null_report', 'SupervisorAgent returned a null report.');
+        }
+    }
+
+    logStreamer.logStep(jobId, 'database_save_start', 'Saving processed data to database');
+
+    // Prepare data for generateAndSaveReport and for job_data table (some fields overlap)
+    const estimateDataForReport: EstimateData | null = orchestrationOutput?.estimateExtraction?.data ? 
+      {
+        propertyAddress: orchestrationOutput.estimateExtraction.data.propertyAddress?.value || undefined,
+        claimNumber: orchestrationOutput.estimateExtraction.data.claimNumber?.value || undefined,
+        insuranceCarrier: orchestrationOutput.estimateExtraction.data.insuranceCarrier?.value || undefined,
+        dateOfLoss: orchestrationOutput.estimateExtraction.data.dateOfLoss?.value instanceof Date ? 
+                        (orchestrationOutput.estimateExtraction.data.dateOfLoss.value as Date).toISOString() :
+                        orchestrationOutput.estimateExtraction.data.dateOfLoss?.value as string | undefined,
+        totalRCV: orchestrationOutput.estimateExtraction.data.totalRCV?.value ?? undefined,
+        lineItems: orchestrationOutput.estimateExtraction.data.lineItems?.value?.map((item: EstimateLineItem): LineItem => ({
+            description: item.description || 'N/A',
+            quantity: typeof item.quantity === 'string' ? (parseFloat(item.quantity) || 0) : (item.quantity || 0), // Ensure number & default
+            unit: item.unit || 'N/A',
+            // category: item.category, // Not in DB LineItem
+            // notes: item.notes, // Not in DB LineItem
+            unitPrice: item.unitPrice === null ? undefined : item.unitPrice, // Handle null
+            totalPrice: item.totalPrice === null ? undefined : item.totalPrice, // Handle null
+            // code: undefined, // Assuming 'code' is optional and not present in EstimateLineItem from agent
+        })) || [],
+      } : null;
+
+    const roofDataForReport: RoofData | null = orchestrationOutput?.roofReportExtraction?.data ? 
+    {
+        totalRoofArea: orchestrationOutput.roofReportExtraction.data.totalRoofArea?.value ?? undefined,
+        eaveLength: orchestrationOutput.roofReportExtraction.data.eaveLength?.value ?? undefined,
+        rakeLength: orchestrationOutput.roofReportExtraction.data.rakeLength?.value ?? undefined,
+        ridgeHipLength: orchestrationOutput.roofReportExtraction.data.ridgeHipLength?.value ?? undefined,
+        valleyLength: orchestrationOutput.roofReportExtraction.data.valleyLength?.value ?? undefined,
+        stories: orchestrationOutput.roofReportExtraction.data.stories?.value ?? undefined,
+        pitch: orchestrationOutput.roofReportExtraction.data.pitch?.value || undefined,
+        propertyAddress: orchestrationOutput.estimateExtraction?.data?.propertyAddress?.value || undefined, // Get from estimate data
+        totalFacets: orchestrationOutput.roofReportExtraction.data.facets?.value ?? undefined, // Add if it exists in agent type
+    } : null;
+    
+    const supplementsForReport: SupplementItem[] = orchestrationOutput?.supplementGeneration?.data?.generatedSupplements.map(s => ({
+      id: s.id || uuidv4(),
+      job_id: jobId,
+      line_item: s.description,
+      xactimate_code: s.xactimateCode || undefined,
+      quantity: typeof s.quantity === 'string' ? parseFloat(s.quantity) : s.quantity,
+      unit: s.unit,
+      reason: s.justification,
+      confidence_score: s.confidence,
+      calculation_details: s.sourceRecommendationId ? `Based on recommendation: ${s.sourceRecommendationId}` : (s.justification || 'Generated by agent')
+    })) || [];
+
+    // Call generateAndSaveReport with correctly typed data
+    if (finalJobStatus !== JobStatus.FAILED && finalJobStatus !== JobStatus.CANCELLED) { // Or based on some other condition
+        await generateAndSaveReport(
+            jobId,
+            estimateDataForReport,
+            roofDataForReport,
+            supplementsForReport,
+            finalJobStatus.toString(),
+            detailedErrorMessage
+        );
+    }
+
+    const jobDataToInsert: any = {
       id: uuidv4(),
       job_id: jobId,
-      property_address: estimateData?.propertyAddress || roofData?.propertyAddress || 'N/A',
-      claim_number: estimateData?.claimNumber || 'N/A',
-      insurance_carrier: estimateData?.insuranceCarrier || 'N/A',
-      date_of_loss: estimateData?.dateOfLoss,
-      total_rcv: estimateData?.totalRCV,
-      roof_area_squares: roofData?.totalRoofArea,
-      eave_length: roofData?.eaveLength,
-      rake_length: roofData?.rakeLength,
-      ridge_hip_length: roofData?.ridgeHipLength,
-      valley_length: roofData?.valleyLength,
-      stories: roofData?.stories,
-      pitch: roofData?.pitch || 'N/A',
-      error_message: detailedErrorMessage
+      property_address: estimateDataForReport?.propertyAddress || 'N/A',
+      claim_number: estimateDataForReport?.claimNumber || 'N/A',
+      insurance_carrier: estimateDataForReport?.insuranceCarrier || 'N/A',
+      date_of_loss: estimateDataForReport?.dateOfLoss,
+      total_rcv: estimateDataForReport?.totalRCV,
+      total_acv: orchestrationOutput?.estimateExtraction?.data?.totalACV?.value,
+      deductible: orchestrationOutput?.estimateExtraction?.data?.deductible?.value,
+      roof_area_squares: roofDataForReport?.totalRoofArea,
+      eave_length: roofDataForReport?.eaveLength,
+      rake_length: roofDataForReport?.rakeLength,
+      ridge_hip_length: roofDataForReport?.ridgeHipLength,
+      valley_length: roofDataForReport?.valleyLength,
+      stories: roofDataForReport?.stories,
+      pitch: roofDataForReport?.pitch,
+      estimate_confidence: orchestrationOutput?.estimateExtraction?.validation?.confidence,
+      roof_report_confidence: orchestrationOutput?.roofReportExtraction?.validation?.confidence,
+      supervisor_outcome: supervisionReport?.finalStatus,
+      supervisor_recommendations: supervisionReport?.actionableSuggestions?.join('; '),
+      error_message: detailedErrorMessage || null,
     };
-    console.log(`[${jobId}] processFilesAsync: Inserting into job_data:`, jobDataToInsert);
-    const { error: dataError } = await supabase
-      .from('job_data')
-      .insert(jobDataToInsert);
 
+    const { error: dataError } = await supabase.from('job_data').insert(jobDataToInsert);
     if (dataError) {
-      console.error(`[${jobId}] processFilesAsync: DB error saving job_data at step ${processingStep}:`, dataError);
-      currentStatus = 'failed';
+      console.error(`[${jobId}] DB error saving job_data:`, dataError);
+      if (finalJobStatus !== JobStatus.FAILED) finalJobStatus = JobStatus.FAILED_PARTIAL;
       detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + '; ' : '') + `DB save error (job_data): ${dataError.message}`;
-    } else {
-      console.log(`[${jobId}] processFilesAsync: Successfully inserted into job_data.`);
     }
 
-    if (supplementItems.length > 0) {
-      processingStep = 'supplement_items_insertion';
-      console.log(`[${jobId}] processFilesAsync: Preparing to insert ${supplementItems.length} supplement items.`);
-      logStreamer.logStep(jobId, processingStep, `Inserting ${supplementItems.length} supplement items`)
-      const supplementInserts = supplementItems.map(item => ({
-        id: uuidv4(),
+    const generatedSupplements = orchestrationOutput?.supplementGeneration?.data?.generatedSupplements;
+    if (generatedSupplements && generatedSupplements.length > 0) {
+      logStreamer.logStep(jobId, 'supplement_items_insertion', `Inserting ${generatedSupplements.length} supplement items`);
+      const supplementInserts = generatedSupplements.map((item: GeneratedSupplementItem) => ({
+        id: item.id || uuidv4(),
         job_id: jobId,
-        line_item: item.line_item,
-        xactimate_code: item.xactimate_code,
-        quantity: item.quantity,
+        line_item: item.description,
+        xactimate_code: item.xactimateCode || undefined,
+        quantity: typeof item.quantity === 'string' ? parseFloat(item.quantity) : item.quantity,
         unit: item.unit,
-        reason: item.reason,
-        confidence_score: item.confidence_score,
-        calculation_details: item.calculation_details
+        reason: item.justification,
+        confidence_score: item.confidence,
+        calculation_details: item.sourceRecommendationId ? `Based on recommendation: ${item.sourceRecommendationId}` : (item.justification || 'Generated by agent')
       }));
-      const { error: supplementError } = await supabase
-        .from('supplement_items')
-        .insert(supplementInserts);
-
+      const { error: supplementError } = await supabase.from('supplement_items').insert(supplementInserts);
       if (supplementError) {
-        console.error(`[${jobId}] processFilesAsync: DB error saving supplement_items at step ${processingStep}:`, supplementError);
+        console.error(`[${jobId}] DB error saving supplement_items:`, supplementError);
+        if (finalJobStatus !== JobStatus.FAILED) finalJobStatus = JobStatus.FAILED_PARTIAL;
         detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + '; ' : '') + `DB save error (supplement_items): ${supplementError.message}`;
-      } else {
-        console.log(`[${jobId}] processFilesAsync: Successfully inserted supplement items.`);
       }
     }
-    
-    currentStatus = detailedErrorMessage ? 'failed' : 'completed';
-    console.log(`[${jobId}] processFilesAsync: Determined final status: ${currentStatus} (Errors: ${detailedErrorMessage})`);
-    
+    logStreamer.logStep(jobId, 'database_save_complete', 'Finished saving data to database');
+
   } catch (e: any) {
-    processingStep = 'unhandled_exception_block';
-    console.error(`[${jobId}] processFilesAsync: UNHANDLED error in main try block at step ${processingStep}:`, e);
-    logStreamer.logError(jobId, processingStep, e.message)
-    currentStatus = 'failed';
-    detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + '; ' : '') + `Unhandled processing error: ${e.message}`;
+    console.error(`[${jobId}] UNHANDLED error in processFilesWithNewAgent:`, e);
+    logStreamer.logError(jobId, 'unhandled_agent_exception', e.message)
+    finalJobStatus = JobStatus.FAILED;
+    detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + '; ' : '') + `Critical agent processing error: ${e.message}`;
     
-    console.log(`[${jobId}] processFilesAsync: Attempting fallback job_data insert due to unhandled error.`);
-    const { data: existingJobData } = await supabase.from('job_data').select('id').eq('job_id', jobId).maybeSingle();
-    if (!existingJobData) {
-      const { error: fallbackInsertError } = await supabase.from('job_data').insert({
-        id: uuidv4(),
-        job_id: jobId,
-        error_message: detailedErrorMessage,
-        property_address: 'N/A',
-        claim_number: 'N/A',
-        insurance_carrier: 'N/A'
-      });
-      if (fallbackInsertError) {
-        console.error(`[${jobId}] processFilesAsync: Fallback job_data insert FAILED:`, fallbackInsertError);
-      } else {
-        console.log(`[${jobId}] processFilesAsync: Fallback job_data insert successful.`);
-      }
-    } else {
-      console.log(`[${jobId}] processFilesAsync: Fallback job_data insert skipped, record already exists for this job.`);
+    try {
+        const { data: existingJobData } = await supabase.from('job_data').select('id').eq('job_id', jobId).maybeSingle();
+        if (!existingJobData) {
+          const { error: fallbackInsertError } = await supabase.from('job_data').insert({
+            id: uuidv4(), job_id: jobId, error_message: detailedErrorMessage,
+            property_address: 'N/A', claim_number: 'N/A', insurance_carrier: 'N/A'
+          });
+          if (fallbackInsertError) {
+            console.error(`[${jobId}] Fallback job_data insert FAILED:`, fallbackInsertError);
+          }
+        }
+    } catch (dbCatchError) {
+        console.error(`[${jobId}] Error during fallback job_data insert:`, dbCatchError);
     }
   } finally {
-    processingStep = 'finally_block';
     const processingTime = Date.now() - startTime;
-    console.log(`[${jobId}] processFilesAsync: Finally block. Status: ${currentStatus}, Error: ${detailedErrorMessage}`);
-    logStreamer.logStep(jobId, processingStep, 'Finalizing job')
+    logStreamer.logStep(jobId, 'job_finalizing', `Finalizing job. Status: ${finalJobStatus}`)
 
-    try {
-      await generateAndSaveReport(jobId, estimateData, roofData, supplementItems, currentStatus, detailedErrorMessage)
-    } catch (reportErr) {
-      console.error(`[${jobId}] processFilesAsync: Failed to generate report:`, reportErr)
-    }
+    // Map internal JobStatus enum to DB allowed status values
+    const mapStatusForDb = (status: JobStatus): string => {
+      switch (status) {
+        case JobStatus.IN_PROGRESS:
+        case JobStatus.PENDING:
+          return 'processing';
+        case JobStatus.COMPLETED:
+          return 'completed';
+        case JobStatus.FAILED:
+        case JobStatus.FAILED_PARTIAL:
+        case JobStatus.CANCELLED:
+        default:
+          return 'failed';
+      }
+    };
 
-    // Always send job-completed event before updating database
-    logStreamer.logStep(jobId, 'job-completed', `Job ${currentStatus}`)
-    
     const { error: updateError } = await supabase
       .from('jobs')
       .update({
-        status: currentStatus,
+        status: mapStatusForDb(finalJobStatus),
         processing_time_ms: processingTime,
-        error_message: detailedErrorMessage
+        error_message: detailedErrorMessage,
       })
       .eq('id', jobId);
 
     if (updateError) {
-      console.error(`[${jobId}] processFilesAsync: CRITICAL - Failed to update final job status for ${jobId} to ${currentStatus}:`, updateError);
-      // Still try to send the completion event even if DB update fails
+      console.error(`[${jobId}] CRITICAL - Failed to update final job status for ${jobId} to ${finalJobStatus}:`, updateError);
       logStreamer.logError(jobId, 'job-update-failed', `Failed to update job status: ${updateError.message}`)
-    } else {
-      console.log(`[${jobId}] processFilesAsync: Successfully updated final job status for ${jobId} to ${currentStatus}.`);
-      // Add a small delay to ensure database transaction is committed
-      await new Promise(resolve => setTimeout(resolve, 1000));
     }
-    console.log(`[${jobId}] processFilesAsync: Finished. Final Status: ${currentStatus}. Processing Time: ${processingTime}ms. Errors: ${detailedErrorMessage || 'None'}`);
+    
+    logStreamer.logStep(jobId, 'job-completed', `Job ${finalJobStatus}. Processing time: ${processingTime}ms.`)
+    console.log(`[${jobId}] processFilesWithNewAgent: Finished. Status: ${finalJobStatus}. Time: ${processingTime}ms. Errors: ${detailedErrorMessage || 'None'}`);
   }
 }
