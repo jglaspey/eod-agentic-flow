@@ -21,6 +21,7 @@ import { RoofReportExtractorAgent } from './RoofReportExtractorAgent';
 import { DiscrepancyAnalysisAgent } from './DiscrepancyAnalysisAgent';
 import { SupplementGeneratorAgent } from './SupplementGeneratorAgent';
 import { v4 as uuidv4 } from 'uuid';
+import { logStreamer } from '@/lib/log-streamer'; // Import logStreamer
 
 interface OrchestrationInput {
   estimatePdfBuffer: Buffer;
@@ -134,6 +135,15 @@ export class OrchestrationAgent extends Agent {
 
   async act(input: OrchestrationInput, context: TaskContext): Promise<AgentResult<OrchestrationOutput>> {
     this.log(LogLevel.INFO, 'orchestration-start', `Starting orchestration for job ${input.jobId}`, { parentTaskId: context.taskId });
+    logStreamer.logStep(input.jobId, 'orchestration_start', 'OrchestrationAgent processing started', {
+      input: {
+        jobId: input.jobId,
+        hasEstimatePdf: !!input.estimatePdfBuffer,
+        hasRoofReportPdf: !!input.roofReportPdfBuffer,
+        strategy: input.strategy,
+      },
+      agentVersion: this.config.version
+    });
 
     const output: OrchestrationOutput = {
       jobId: input.jobId,
@@ -248,32 +258,45 @@ export class OrchestrationAgent extends Agent {
       if (!hasCriticalErrors && output.estimateExtraction?.data) {
         // Only low-confidence messages present → treat as completed with warnings
         output.status = JobStatus.COMPLETED;
-      } else if (output.estimateExtraction?.data) {
+      } else if (output.estimateExtraction?.data) { // Has data, but also critical errors
         output.status = JobStatus.FAILED_PARTIAL;
       } else {
         // If estimate extraction itself failed to produce data, it's a hard failure for the job.
         output.status = JobStatus.FAILED;
         if (!output.errors.some(e => e.startsWith('Estimate extraction failed'))) {
-          output.errors.push('Critical failure: Estimate data could not be extracted.');
+            output.errors.push('Critical failure: Estimate data could not be extracted.');
         }
       }
 
-    } catch (criticalError: any) {
-      this.log(LogLevel.ERROR, 'orchestration-critical-failure', `Critical failure in orchestration for job ${input.jobId}: ${criticalError.message}`, { error: criticalError.toString(), stack: criticalError.stack, agentType: this.agentType });
-      output.errors.push(`Critical orchestration failure: ${criticalError.message}`);
+      this.log(LogLevel.INFO, 'orchestration-complete', `Orchestration finished for job ${input.jobId} with status ${output.status}`, { parentTaskId: context.taskId, finalStatus: output.status });
+      logStreamer.logStep(input.jobId, 'orchestration_complete', `OrchestrationAgent processing finished with status: ${output.status}`, {
+        outputSummary: {
+          jobId: output.jobId,
+          status: output.status,
+          wasRoofReportProvided: output.wasRoofReportProvided,
+          estimateExtractionConfidence: output.estimateExtraction?.validation.confidence,
+          roofReportExtractionConfidence: output.roofReportExtraction?.validation.confidence,
+          discrepancyAnalysisConfidence: output.discrepancyAnalysis?.validation.confidence,
+          supplementGenerationConfidence: output.supplementGeneration?.validation.confidence,
+          errorCount: output.errors.length,
+          firstError: output.errors[0]
+        },
+        // Consider conditionally adding full output data if it's not too large
+        // fullOutput: output // Potentially very large, use with caution
+      });
+
+    } catch (err: any) {
+      this.log(LogLevel.ERROR, 'orchestration-critical-failure', `Orchestration critical failure for job ${input.jobId}: ${err.message}`, { parentTaskId: context.taskId, error: err.toString() });
       output.status = JobStatus.FAILED;
+      output.errors.push(`Critical orchestration failure: ${err.message}`);
+      logStreamer.logError(input.jobId, 'orchestration_critical_failure', `OrchestrationAgent critical failure: ${err.message}`, { error: err.toString() });
     }
     
-    this.log(
-        output.status === JobStatus.COMPLETED ? LogLevel.SUCCESS : output.status === JobStatus.FAILED_PARTIAL ? LogLevel.WARN : LogLevel.ERROR,
-        'orchestration-complete', 
-        `Orchestration finished for job ${input.jobId}. Status: ${output.status}`, 
-        { finalStatus: output.status, errorCount: output.errors.length, agentType: this.agentType }
-    );
+    const validation = await this.validate(output, context);
 
     return {
       data: output,
-      validation: await this.validate(output, context), // Validate the overall orchestration outcome
+      validation: validation, // Validate the overall orchestration outcome
       processingTimeMs: 0, // Set by base Agent
       model: 'multi_agent_system'
     };

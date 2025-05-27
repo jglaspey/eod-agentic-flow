@@ -102,7 +102,6 @@ async function processFilesWithNewAgent(
       retryCount: 0
     };
 
-    logStreamer.logStep(jobId, 'orchestration_start', 'OrchestrationAgent processing started');
     const orchestrationResult = await orchestrationAgent.execute(
       { estimatePdfBuffer, roofReportPdfBuffer, jobId },
       initialTaskContext
@@ -117,8 +116,6 @@ async function processFilesWithNewAgent(
         detailedErrorMessage = "Orchestration resulted in null output.";
         logStreamer.logError(jobId, 'orchestration_null_output', detailedErrorMessage);
     }
-
-    logStreamer.logStep(jobId, 'orchestration_complete', `OrchestrationAgent processing finished with status: ${finalJobStatus}`);
 
     if (finalJobStatus !== JobStatus.FAILED && orchestrationResult) {
         const supervisorAgent = new SupervisorAgent();

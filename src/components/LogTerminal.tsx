@@ -13,6 +13,7 @@ interface LogEvent {
   level: 'info' | 'success' | 'error' | 'debug'
   step: string
   message: string
+  data?: any;
 }
 
 export default function LogTerminal({ jobId, onComplete, readonly }: LogTerminalProps) {
@@ -132,6 +133,11 @@ export default function LogTerminal({ jobId, onComplete, readonly }: LogTerminal
         {logs.map(log => (
           <div key={log.id} className={levelColor[log.level]}>
             [{new Date(log.timestamp).toLocaleTimeString()}] ({log.step}) {log.message}
+            {log.data && (
+              <pre className="text-xs text-gray-400 mt-1 whitespace-pre-wrap break-all">
+                {JSON.stringify(log.data, null, 2)}
+              </pre>
+            )}
           </div>
         ))}
         {logs.length === 0 && <div className="text-gray-400">Waiting for logs...</div>}

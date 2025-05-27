@@ -1,4 +1,6 @@
 import UploadInterface from '@/components/UploadInterface'
+import { PreviousJobsDashboard } from '@/components/PreviousJobsDashboard'
+import { Suspense } from 'react'
 
 export default function Home() {
   return (
@@ -9,6 +11,10 @@ export default function Home() {
       <div className="bg-white rounded-lg shadow-md p-6">
         <UploadInterface />
       </div>
+
+      <Suspense fallback={<p className="text-center mt-8 text-gray-500">Loading previous jobs...</p>}>
+        <PreviousJobsDashboard />
+      </Suspense>
     </div>
   )
 }

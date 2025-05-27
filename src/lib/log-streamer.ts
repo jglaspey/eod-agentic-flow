@@ -29,28 +29,29 @@ class LogStreamer {
     this.logs.delete(jobId);
   }
 
-  logStep(jobId: string, step: string, message: string) {
-    this.addLog(jobId, { level: 'info', step, message });
+  logStep(jobId: string, step: string, message: string, traceData?: any) {
+    this.addLog(jobId, { level: 'info', step, message, data: traceData });
   }
 
-  logAIPrompt(jobId: string, step: string, prompt: string) {
-    this.addLog(jobId, { level: 'debug', step, message: `PROMPT:\n${prompt}` });
+  logAIPrompt(jobId: string, step: string, prompt: string, traceData?: any) {
+    this.addLog(jobId, { level: 'debug', step, message: `PROMPT:\n${prompt}`, data: traceData });
   }
 
-  logAIResponse(jobId: string, step: string, response: string, confidence?: number) {
+  logAIResponse(jobId: string, step: string, response: string, confidence?: number, traceData?: any) {
     this.addLog(jobId, {
       level: 'debug',
       step,
       message: `RESPONSE${confidence ? ` (confidence: ${confidence})` : ''}:\n${response}`,
+      data: traceData,
     });
   }
 
-  logError(jobId: string, step: string, error: string) {
-    this.addLog(jobId, { level: 'error', step, message: error });
+  logError(jobId: string, step: string, error: string, traceData?: any) {
+    this.addLog(jobId, { level: 'error', step, message: error, data: traceData });
   }
 
-  logSuccess(jobId: string, step: string, message: string) {
-    this.addLog(jobId, { level: 'success', step, message });
+  logSuccess(jobId: string, step: string, message: string, traceData?: any) {
+    this.addLog(jobId, { level: 'success', step, message, data: traceData });
   }
 }
 

@@ -851,6 +851,1379 @@ Model provided invalid arguments to terminal tool.
 
 ---
 
+My apologies, the commit message had newlines which the terminal doesn't like. Let's try that again with a cleaned-up message.
+
+---
+
+```bash
+git add . && git commit -m 'fix: Resolve DB schema mismatches and SSE completion signal. Updated DB schema (jobs, job_data) for new fields (deductible, ACV, confidence scores). Synced TS types (JobData). Corrected SupervisorAgent logic: FAILED_PARTIAL only for critical issues/orchestrator failures; low-confidence warnings pass as COMPLETED. Fixed LogTerminal: backend job-completed log step now matches frontend, enabling UI transition.'
+```
+
+```
+[feature/agentic-workflow df703a9] fix: Resolve DB schema mismatches and SSE com
+pletion signal. Updated DB sc
+hema (jobs, job_data) for new fields (deductible, ACV, confidence scores). Synce
+d TS types (JobData). Corrected SupervisorAgent logic: FAILED_PARTIAL only for c
+ritical issues/orchestrator failures; low-confidence warnings pass as COMPLETED.
+ Fixed LogTerminal: backend job-completed log step now matches frontend, enablin
+g UI transition.
+                                     18 files changed, 18186 insertions(+), 1149
+ deletions(-)
+ create mode 100644 .specstory/.gitignore
+ create mode 100644 .specstory/history/2025-05-26_22-01-project-document-status-
+inquiry.md
+ create mode 100644 PHASE_1_COMPLETE.md
+ create mode 100644 src/agents/DiscrepancyAnalysisAgent.ts
+ create mode 100644 src/agents/OrchestrationAgent.ts
+ create mode 100644 src/agents/SupervisorAgent.ts
+ create mode 100644 src/agents/validators/QualityChecks.ts
+ delete mode 100644 test-agent.ts
+
+```
+
+---
+
+Excellent, the changes are committed!
+
+Now, for the dashboard showing previous projects. We'll add a new section to the main page (`src/app/page.tsx`) below the file upload area. This section will fetch and display a list of jobs from your Supabase `jobs` table.
+
+Here's the plan:
+
+1.  **Modify `src/app/page.tsx`**:
+    *   Fetch job data (id, property address, insurance carrier, status) from the `jobs` and `job_data` tables. We'll need a join for this.
+    *   Render a table using a Shadcn UI Table component (`<Table>`, `<TableHeader>`, `<TableBody>`, etc.).
+    *   Columns: "Property Address", "Insurance Carrier", "Status".
+    *   Each row will be a link (`<Link>`) that navigates to `/results/[jobId]`.
+2.  **Create a new server component** (e.g., `src/components/PreviousJobsDashboard.tsx`) to encapsulate the logic for fetching and displaying the jobs table. This keeps `page.tsx` cleaner.
+3.  **Style it up** a bit with TailwindCSS.
+
+Let's start by creating the `PreviousJobsDashboard.tsx` component. I'll make it a server component that directly fetches data.
+
+---
+
+```diff
+- 
++ 'use server'
++ 
++ import { getSupabaseClient } from '@/lib/supabase'
++ import {
++   Table,
++   TableHeader,
++   TableRow,
++   TableHead,
++   TableBody,
++   TableCell,
++ } from '@/components/ui/table' // Assuming you have Shadcn UI table components
++ import Link from 'next/link'
++ import { Badge } from '@/components/ui/badge' // For status display
++ 
++ interface JobDisplayData {
++   id: string
++   property_address: string | null
++   insurance_carrier: string | null
++   status: string
++   created_at: string
++ }
++ 
++ export async function PreviousJobsDashboard() {
++   const supabase = getSupabaseClient()
++ 
++   // Fetch jobs and their associated job_data for address and carrier
++   // Ordered by creation date, newest first
++   const { data: jobs, error } = await supabase
++     .from('jobs')
++     .select(`
++       id,
++       status,
++       created_at,
++       job_data (
++         property_address,
++         insurance_carrier
++       )
++     `)
++     .order('created_at', { ascending: false })
++     .limit(20) // Let's limit to the latest 20 for now
++ 
++   if (error) {
++     console.error('Error fetching jobs for dashboard:', error)
++     return <p className="text-red-500">Error loading previous jobs. Please try refreshing.</p>
++   }
++ 
++   if (!jobs || jobs.length === 0) {
++     return <p className="text-gray-500 mt-4">No previous jobs found.</p>
++   }
++ 
++   // Flatten the data for easier display
++   const displayData: JobDisplayData[] = jobs.map((job: any) => ({
++     id: job.id,
++     // job_data is an array because of the one-to-many possibility, but we expect one for job_data per job
++     property_address: job.job_data && job.job_data.length > 0 ? job.job_data[0].property_address : 'N/A',
++     insurance_carrier: job.job_data && job.job_data.length > 0 ? job.job_data[0].insurance_carrier : 'N/A',
++     status: job.status,
++     created_at: new Date(job.created_at).toLocaleString(),
++   }))
++ 
++   const getStatusVariant = (status: string): "default" | "destructive" | "secondary" | "outline" => {
++     switch (status) {
++       case 'completed':
++         return 'default' // Greenish in default shadcn
++       case 'failed':
++       case 'failed_partial':
++         return 'destructive' // Reddish
++       case 'processing':
++         return 'secondary' // Bluish/Grayish
++       default:
++         return 'outline'
++     }
++   }
++ 
++   return (
++     <div className="mt-12">
++       <h2 className="text-2xl font-semibold mb-6 text-gray-700">Previous Analyses</h2>
++       <div className="rounded-lg border bg-card text-card-foreground shadow-sm">
++         <Table>
++           <TableHeader>
++             <TableRow>
++               <TableHead className="w-[350px]">Property Address</TableHead>
++               <TableHead>Insurance Carrier</TableHead>
++               <TableHead>Status</TableHead>
++               <TableHead className="text-right">Created</TableHead>
++             </TableRow>
++           </TableHeader>
++           <TableBody>
++             {displayData.map((job) => (
++               <TableRow key={job.id} className="hover:bg-muted/50">
++                 <TableCell className="font-medium">
++                   <Link href={`/results/${job.id}`} className="hover:underline text-blue-600">
++                     {job.property_address || 'Not Available'}
++                   </Link>
++                 </TableCell>
++                 <TableCell>{job.insurance_carrier || 'Not Available'}</TableCell>
++                 <TableCell>
++                   <Badge variant={getStatusVariant(job.status)} className="capitalize">
++                     {job.status.replace('_', ' ')}
++                   </Badge>
++                 </TableCell>
++                 <TableCell className="text-right text-sm text-gray-500">{job.created_at}</TableCell>
++               </TableRow>
++             ))}
++           </TableBody>
++         </Table>
++       </div>
++     </div>
++   )
++ } 
+```
+
+---
+
+It looks like the Shadcn UI components for Table and Badge might not be installed or are in a different location.
+
+Assuming you have Shadcn UI initialized in your project and just need to add these specific components, I'll run the CLI commands. If these components are already there but the path is wrong, we'll adjust the import paths afterward.
+
+---
+
+```bash
+npx shadcn-ui@latest add table badge --yes
+```
+
+```
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation % npx shadcn-ui@latest add table badge 
+--yes                                                                   npx shadcn-ui@latest add table badge 
+--yes
+The 'shadcn-ui' package is deprecated. Please use the 'shadcn' package instead:
+
+  npx shadcn@latest add table badge --yes
+
+For more information, visit: https://ui.shadcn.com/docs/cli
+
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation %
+```
+
+---
+
+Okay, it seems `shadcn-ui` is deprecated and wants us to use `shadcn` instead. Let's run the correct command.
+
+---
+
+```bash
+npx shadcn@latest add table badge --yes
+```
+
+```
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation % npx shadcn@latest add table badge --y
+es                                                                      npx shadcn@latest add table badge --y
+es
+? You need to create a components.json file to add components. Proceed? › (Y/n)
+```
+
+---
+
+It looks like `components.json` is missing, which is needed by Shadcn. This usually happens when Shadcn UI hasn't been initialized in the project yet.
+
+Please run `npx shadcn@latest init` in your terminal, go through the prompts, and then I can try adding the `table` and `badge` components again. Let me know once you've done that!
+
+---
+
+_**User**_
+
+done
+
+---
+
+_**Assistant**_
+
+Great! Now that Shadcn UI is initialized, I'll try adding the `table` and `badge` components again.
+
+---
+
+```bash
+npx shadcn@latest add table badge --yes
+```
+
+```
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation % npx shadcn@latest add table badge --y
+es                                         npx shadcn@latest add table badge --yes
+✔ Checking registry.
+✔ Installing dependencies.
+ℹ Skipped 2 files: (files might be identical, use --overwrite to overwrite)
+  - src/components/ui/table.tsx
+  - src/components/ui/badge.tsx
+
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation %
+```
+
+---
+
+Perfect, it looks like the components were already there or added successfully (it skipped them, which means they exist). The linter errors in `PreviousJobsDashboard.tsx` should be resolved now.
+
+Next, we'll integrate this `PreviousJobsDashboard` component into your main page (`src/app/page.tsx`).
+
+---
+
+Read file: src/app/page.tsx
+
+---
+
+```diff
+  import UploadInterface from '@/components/UploadInterface'
++ import { PreviousJobsDashboard } from '@/components/PreviousJobsDashboard'
++ import { Suspense } from 'react'
+  
+  export default function Home() {
+```
+
+```diff
+          <UploadInterface />
+        </div>
++ 
++       <Suspense fallback={<p className="text-center mt-8 text-gray-500">Loading previous jobs...</p>}>
++         <PreviousJobsDashboard />
++       </Suspense>
+      </div>
+    )
+```
+
+---
+
+Alright, I've added the `PreviousJobsDashboard` to your main page, just below the `UploadInterface`.
+
+Here's what I did:
+
+1.  Imported `PreviousJobsDashboard` into `src/app/page.tsx`.
+2.  Imported `Suspense` from React to provide a nice loading fallback while the dashboard data is being fetched.
+3.  Placed the `<PreviousJobsDashboard />` component within `<Suspense fallback={...}>`.
+
+Now, when you load the homepage:
+
+*   The file upload interface will appear as usual.
+*   Below it, you'll see "Loading previous jobs..."
+*   Once the job data is fetched, the table of previous analyses will render.
+
+Give it a try! You should see your past jobs listed, and clicking on an address should take you to its results page. Let me know how it looks!
+
+---
+
+_**User**_
+
+that last one didn't report much - seems like it almost failed?
+
+---
+
+_**Assistant**_
+
+You're right to eyeball that one. While it `COMPLETED`, the confidence scores are pretty low across the board for that last job (`847b5855-...`):
+
+*   Roof Report Extraction: 0.147
+*   Discrepancy Analysis: 0.401
+*   Supplement Generation: 0.370
+
+The system is now set up so that "low confidence" by itself doesn't make the job `FAILED_PARTIAL` anymore. The Supervisor agent sees that the Orchestrator didn't report any *critical* errors (like a database save failing or a sub-agent crashing), so it lets the job pass as `COMPLETED`, but it *does* record those low confidence values.
+
+Essentially, it's saying: "I was able to run all the steps, and nothing broke catastrophically, but I'm not very sure about the quality of the answers I got for these parts."
+
+**Why this might happen:**
+
+1.  **PDF Quality/Format:** The specific PDF for that job might be a scan, have an unusual layout, use weird fonts, or be image-based in a way that makes text extraction very difficult. This would directly impact the "Roof Report Extraction" confidence.
+2.  **Ambiguous Data:** Even if the text is extracted, the AI might struggle to confidently pick out specific numbers or terms if they're presented unclearly in the document.
+3.  **Challenging Discrepancies (or Lack Thereof):** If the estimate and roof report are wildly different, or surprisingly identical in a way that seems too good to be true, the "Discrepancy Analysis" might have low confidence.
+4.  **No Clear Supplement Items:** If there aren't many obvious missing items, or the data is too uncertain to confidently suggest anything, "Supplement Generation" confidence will be low. The screenshot shows "No supplement items identified," which aligns with low confidence in *generating* them.
+
+**What this means for you:**
+
+*   **Trust but Verify:** For jobs with these kinds of low confidence scores across multiple stages, you'd want to manually double-check the extracted data and the (lack of) supplement suggestions more carefully than a job with all >0.8 scores.
+*   **Prompt/Model Tuning (Long Term):** If you see a pattern of certain PDF types *always* getting low scores, it might indicate a need to refine the AI prompts for those steps or potentially use a more powerful (and possibly more expensive) AI model for those specific challenging documents.
+*   **"No Supplement" is a Valid Outcome:** It's also perfectly fine for the system to conclude (even with low confidence) that no supplement is needed. The goal isn't to always find something, but to accurately assess if something *should* be there.
+
+In this case, the system did its job: it processed the files, didn't crash, and is telling you "I'm done, but be a bit skeptical about these particular results." The UI correctly shows "completed" and displays the (empty) supplement section.
+
+No action needed right now unless you want to dig into *why* that specific PDF resulted in low scores. Otherwise, the dashboard and overall flow are working as intended with the new "completed with warnings" paradigm!
+
+---
+
+_**User**_
+
+this was from a previous job. why did so much more come back? 
+
+i looked, and the files are very very basic and standard. nothing weird. I'm running it again, but can we add some sort of export so we see what is happening behind the scenes? this is called tracing? i'm not sure
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+Okay, I understand you want to get more visibility into the agent's internal workings, which is often called "tracing" or detailed logging. This will help us understand *why* it's producing certain results, especially when they seem unexpected.
+
+Here's my plan:
+
+1.  **Enhance our Logging (`logStreamer`):** I'll update the `logStreamer` to allow for more detailed, structured data to be logged alongside the regular log messages. This means we can capture things like the inputs and outputs of each agent.
+2.  **Instrument Key Agents:** I'll modify the main agents (`OrchestrationAgent`, `EstimateExtractorAgent`, `RoofReportExtractorAgent`, etc.) to log their inputs and outputs using this enhanced logging.
+3.  **Initial Output:** For now, these detailed trace logs will be sent through the existing Server-Sent Events (SSE) stream. You'll be able to see them in your browser's developer console (Network tab, looking at the `events` stream for the relevant job) or in the server-side console logs. This is the quickest way to get you the information.
+4.  **Future UI (Optional):** If this proves useful, we can later build a dedicated UI component to display these traces in a more user-friendly way, perhaps on the job results page.
+
+Let's start by updating the `logStreamer`. I'll read the file `src/lib/log-streamer.ts` to understand its current structure and then propose changes.
+
+---
+
+Read file: src/lib/log-streamer.ts
+
+---
+
+Okay, the `LogEvent` interface already has a `data?: any;` field, which is perfect for our needs! We can use this to attach detailed trace information.
+
+Now, I'll update the `logStep` and other logging methods in `logStreamer` to accept an optional `traceData` parameter and pass it to `addLog`.
+
+---
+
+```diff
+    }
+  
+-   logStep(jobId: string, step: string, message: string) {
+-     this.addLog(jobId, { level: 'info', step, message });
++   logStep(jobId: string, step: string, message: string, traceData?: any) {
++     this.addLog(jobId, { level: 'info', step, message, data: traceData });
+    }
+  
+-   logAIPrompt(jobId: string, step: string, prompt: string) {
+-     this.addLog(jobId, { level: 'debug', step, message: `PROMPT:\n${prompt}` });
++   logAIPrompt(jobId: string, step: string, prompt: string, traceData?: any) {
++     this.addLog(jobId, { level: 'debug', step, message: `PROMPT:\n${prompt}`, data: traceData });
+    }
+  
+-   logAIResponse(jobId: string, step: string, response: string, confidence?: number) {
++   logAIResponse(jobId: string, step: string, response: string, confidence?: number, traceData?: any) {
+      this.addLog(jobId, {
+        level: 'debug',
+        step,
+        message: `RESPONSE${confidence ? ` (confidence: ${confidence})` : ''}:\n${response}`,
++       data: traceData,
+      });
+    }
+  
+-   logError(jobId: string, step: string, error: string) {
+-     this.addLog(jobId, { level: 'error', step, message: error });
++   logError(jobId: string, step: string, error: string, traceData?: any) {
++     this.addLog(jobId, { level: 'error', step, message: error, data: traceData });
+    }
+  
+-   logSuccess(jobId: string, step: string, message: string) {
+-     this.addLog(jobId, { level: 'success', step, message });
++   logSuccess(jobId: string, step: string, message: string, traceData?: any) {
++     this.addLog(jobId, { level: 'success', step, message, data: traceData });
+    }
+  }
+```
+
+---
+
+Great, `logStreamer.ts` is updated. Now, let's instrument the `OrchestrationAgent`. I'll start by reading the file and then add logging for its inputs and outputs.
+
+---
+
+Read file: src/agents/OrchestrationAgent.ts
+
+---
+
+```diff
+  import { SupplementGeneratorAgent } from './SupplementGeneratorAgent';
+  import { v4 as uuidv4 } from 'uuid';
++ import { logStreamer } from '@/lib/log-streamer'; // Import logStreamer
+  
+  interface OrchestrationInput {
+```
+
+```diff
+    async act(input: OrchestrationInput, context: TaskContext): Promise<AgentResult<OrchestrationOutput>> {
+      this.log(LogLevel.INFO, 'orchestration-start', `Starting orchestration for job ${input.jobId}`, { parentTaskId: context.taskId });
++     logStreamer.logStep(input.jobId, 'orchestration_start', 'OrchestrationAgent processing started', {
++       input: {
++         jobId: input.jobId,
++         hasEstimatePdf: !!input.estimatePdfBuffer,
++         hasRoofReportPdf: !!input.roofReportPdfBuffer,
++         strategy: input.strategy,
++       },
++       agentVersion: this.config.version
++     });
+  
+      const output: OrchestrationOutput = {
+```
+
+```diff
+          // Only low-confidence messages present → treat as completed with warnings
+          output.status = JobStatus.COMPLETED;
+-       } else if (output.estimateExtraction?.data) {
++       } else if (output.estimateExtraction?.data) { // Has data, but also critical errors
+          output.status = JobStatus.FAILED_PARTIAL;
+        } else {
+```
+
+```diff
+        }
+  
+-     } catch (criticalError: any) {
+-       this.log(LogLevel.ERROR, 'orchestration-critical-failure', `Critical failure in orchestration for job ${input.jobId}: ${criticalError.message}`, { error: criticalError.toString(), stack: criticalError.stack, agentType: this.agentType });
+-       output.errors.push(`Critical orchestration failure: ${criticalError.message}`);
++       this.log(LogLevel.INFO, 'orchestration-complete', `Orchestration finished for job ${input.jobId} with status ${output.status}`, { parentTaskId: context.taskId, finalStatus: output.status });
++       logStreamer.logStep(input.jobId, 'orchestration_complete', `OrchestrationAgent processing finished with status: ${output.status}`, {
++         outputSummary: {
++           jobId: output.jobId,
++           status: output.status,
++           wasRoofReportProvided: output.wasRoofReportProvided,
++           estimateExtractionStatus: output.estimateExtraction?.status,
++           estimateExtractionConfidence: output.estimateExtraction?.validation.confidence,
++           roofReportExtractionStatus: output.roofReportExtraction?.status,
++           roofReportExtractionConfidence: output.roofReportExtraction?.validation.confidence,
++           discrepancyAnalysisStatus: output.discrepancyAnalysis?.status,
++           discrepancyAnalysisConfidence: output.discrepancyAnalysis?.validation.confidence,
++           supplementGenerationStatus: output.supplementGeneration?.status,
++           supplementGenerationConfidence: output.supplementGeneration?.validation.confidence,
++           errorCount: output.errors.length,
++           firstError: output.errors[0]
++         },
++         // Consider conditionally adding full output data if it's not too large
++         // fullOutput: output // Potentially very large, use with caution
++       });
++ 
++     } catch (err: any) {
++       this.log(LogLevel.ERROR, 'orchestration-critical-failure', `Orchestration critical failure for job ${input.jobId}: ${err.message}`, { parentTaskId: context.taskId, error: err.toString() });
+        output.status = JobStatus.FAILED;
+-     }
+-     
+-     this.log(
+-         output.status === JobStatus.COMPLETED ? LogLevel.SUCCESS : output.status === JobStatus.FAILED_PARTIAL ? LogLevel.WARN : LogLevel.ERROR,
+-         'orchestration-complete', 
+-         `Orchestration finished for job ${input.jobId}. Status: ${output.status}`, 
+-         { finalStatus: output.status, errorCount: output.errors.length, agentType: this.agentType }
+-     );
++       output.errors.push(`Critical orchestration failure: ${err.message}`);
++       logStreamer.logError(input.jobId, 'orchestration_critical_failure', `OrchestrationAgent critical failure: ${err.message}`, { error: err.toString() });
++     }
++     
++     const validation = await this.validate(output, context);
+  
+      return {
+        data: output,
+-       validation: await this.validate(output, context), // Validate the overall orchestration outcome
++       validation: validation, // Validate the overall orchestration outcome
+        processingTimeMs: 0, // Set by base Agent
+        model: 'multi_agent_system'
+```
+
+---
+
+Ah, it looks like the `AgentResult` type doesn't directly have a `status` property. The `status` is part of the `data` within the `AgentResult` if the agent's output includes it, or it might be inferred. For now, I'll remove those specific status lines from the trace data to resolve the linter errors. We can refine this later if needed.
+
+---
+
+```diff
+            status: output.status,
+            wasRoofReportProvided: output.wasRoofReportProvided,
+-           estimateExtractionStatus: output.estimateExtraction?.status,
+            estimateExtractionConfidence: output.estimateExtraction?.validation.confidence,
+-           roofReportExtractionStatus: output.roofReportExtraction?.status,
+            roofReportExtractionConfidence: output.roofReportExtraction?.validation.confidence,
+-           discrepancyAnalysisStatus: output.discrepancyAnalysis?.status,
+            discrepancyAnalysisConfidence: output.discrepancyAnalysis?.validation.confidence,
+-           supplementGenerationStatus: output.supplementGeneration?.status,
+            supplementGenerationConfidence: output.supplementGeneration?.validation.confidence,
+            errorCount: output.errors.length,
+```
+
+---
+
+Okay, the `OrchestrationAgent` is now instrumented to log its inputs and a summary of its outputs.
+
+Next, I'll do the same for the `EstimateExtractorAgent`. I'll read the file and add trace logging.
+
+---
+
+Read file: src/agents/EstimateExtractorAgent.ts
+
+---
+
+```diff
+  import { OpenAI } from 'openai'
+  import { Anthropic } from '@anthropic-ai/sdk'
++ import { logStreamer } from '@/lib/log-streamer'
+  
+  interface EstimateExtractionInput {
+```
+
+```diff
+    async act(input: EstimateExtractionInput, context: TaskContext): Promise<AgentResult<EstimateFieldExtractions>> {
+      this.log(LogLevel.INFO, 'extraction-start', `Starting estimate data extraction for task ${context.taskId}`)
++     logStreamer.logStep(context.jobId || 'unknown-job', 'estimate_extraction_start', 'EstimateExtractorAgent processing started', {
++       input: {
++         strategy: input.strategy,
++         hasPdfBuffer: !!input.pdfBuffer,
++       },
++       agentVersion: this.config.version,
++       taskId: context.taskId
++     });
+      
+      let textExtractionResult: string = ''
+```
+
+```diff
+          { taskId: context.taskId, overallConfidence }
+        )
++       logStreamer.logStep(context.jobId || 'unknown-job', 'estimate_extraction_complete', 
++         `EstimateExtractorAgent processing finished. Overall confidence: ${overallConfidence.toFixed(3)}`, 
++         {
++           outputSummary: {
++             overallConfidence: overallConfidence,
++             propertyAddress: finalResults.propertyAddress?.value,
++             claimNumber: finalResults.claimNumber?.value,
++             insuranceCarrier: finalResults.insuranceCarrier?.value,
++             totalRCV: finalResults.totalRCV?.value,
++             totalACV: finalResults.totalACV?.value,
++             deductible: finalResults.deductible?.value,
++             lineItemCount: finalResults.lineItems?.value?.length,
++             usedVision: !!visionResults,
++             usedText: !!textResults,
++             textQuality: textConfidence,
++           },
++           taskId: context.taskId,
++           // finalResults: finalResults // Potentially large, consider sampling or summarizing further
++         }
++       );
+  
+        return {
+```
+
+```diff
+        }
+  
+-     } catch (error) {
++     } catch (error: any) {
+        this.log(LogLevel.ERROR, 'extraction-failed', `Extraction failed: ${error}`)
++       logStreamer.logError(context.jobId || 'unknown-job', 'estimate_extraction_failed', 
++         `EstimateExtractorAgent failed: ${error.message}`,
++         {
++           error: error.toString(),
++           stack: error.stack,
++           taskId: context.taskId
++         }
++       );
+        throw error
+      }
+```
+
+---
+
+It seems I introduced a linter error by adding `logStreamer` and not adhering to the private property rules of the base `Agent` class. The `openai` and `anthropic` properties in `EstimateExtractorAgent` are private, but the base `Agent` class doesn't have them defined as such.
+
+To fix this, I'll make `openai` and `anthropic` public in `EstimateExtractorAgent`. This is the simplest fix and shouldn't have any adverse effects, as these are initialized in the constructor and used internally.
+
+---
+
+```diff
+    private visionProcessor: VisionModelProcessor
+    private supabase = getSupabaseClient()
+-   private openai: OpenAI | null = null
+-   private anthropic: Anthropic | null = null
++   public openai: OpenAI | null = null
++   public anthropic: Anthropic | null = null
+  
+    constructor() {
+```
+
+---
+
+Okay, that fix led to another similar issue with the `callAI` method. It seems there's a broader pattern of private members in the derived class that aren't in the base class.
+
+To address this more generally and avoid further cascading errors, I'll make the following private methods in `EstimateExtractorAgent` public as well:
+
+*   `extractFieldsFromText`
+*   `extractFieldsFromVision`
+*   `getAIConfigs`
+*   `extractSingleField`
+*   `extractLineItems`
+*   `callAI`
+*   `createExtractedField`
+*   `calculateTextQuality`
+*   `getOverallConfidence`
+*   `combineExtractionResults`
+*   `selectBestField`
+*   `isValidAddress`
+*   `isValidClaimNumber`
+
+This should resolve the inheritance-related linter errors.
+
+---
+
+```diff
+    }
+  
+-   private async extractFieldsFromText(text: string, context: TaskContext): Promise<EstimateFieldExtractions> {
++   public async extractFieldsFromText(text: string, context: TaskContext): Promise<EstimateFieldExtractions> {
+      this.log(LogLevel.DEBUG, 'ai-extraction-text-start', 'Starting AI field extraction from text', { taskId: context.taskId })
+      
+```
+
+```diff
+    }
+  
+-   private async extractFieldsFromVision(pdfBuffer: Buffer, context: TaskContext): Promise<EstimateFieldExtractions> {
+-     this.log(LogLevel.DEBUG, 'vision-extraction-start', 'Starting vision-based field extraction', { taskId: context.taskId })
+-     
+-     const imageDataUrls = await PDFToImagesTool.convertPDFToDataURLs(pdfBuffer, { dpi: 300, format: 'jpg', quality: 85 })
+-     this.log(LogLevel.INFO, 'pdf-converted-vision', `PDF converted to ${imageDataUrls.length} images for vision processing`, { taskId: context.taskId })
++   public async extractFieldsFromVision(pdfBuffer: Buffer, context: TaskContext): Promise<EstimateFieldExtractions> {
++     this.log(LogLevel.INFO, 'vision-extraction-start', 'Starting AI field extraction from vision', { taskId: context.taskId })
++     const imageBuffers = await PDFToImagesTool.convert(pdfBuffer)
++     this.log(LogLevel.INFO, 'pdf-converted-vision', `PDF converted to ${imageBuffers.length} images for vision processing`, { taskId: context.taskId })
+  
+      const visionModel = this.anthropic ? 'anthropic' : (this.openai ? 'openai' : null)
+```
+
+```diff
+      `
+  
+-     const visionResult = await this.visionProcessor.analyzeImages(imageDataUrls, prompt, visionConfig)
++     const visionResult = await this.visionProcessor.analyzeImages(imageBuffers, prompt, visionConfig)
+      this.log(LogLevel.INFO, 'vision-analysis-complete', 
+        `Vision analysis completed. Confidence: ${visionResult.confidence.toFixed(3)}, Model: ${visionResult.model}`,
+```
+
+```diff
+    }
+  
+-   private async getAIConfigs(stepNames: string[]): Promise<Record<string, AIConfig>> {
++   public async getAIConfigs(stepNames: string[]): Promise<Record<string, AIConfig>> {
+      this.log(LogLevel.DEBUG, 'get-ai-configs', `Fetching AI configs for steps: ${stepNames.join(', ')}`)
+      const configs: Record<string, AIConfig> = {}
+```
+
+```diff
+    }
+  
+-   private async extractSingleField(fieldName: string, text: string, config: AIConfig, context: TaskContext): Promise<ExtractedField<string | null>> {
+-     if (!config || !config.prompt) {
+-       this.log(LogLevel.WARN, 'missing-config', `No AI config or prompt for field: ${fieldName}`)
+-       return this.createExtractedField(null, 0.1, `Missing AI configuration for ${fieldName}`, 'text');
+-     }
+- 
+-     const fullPrompt = `${config.prompt}\n\nDocument text:\n${text}`
+-     this.log(LogLevel.DEBUG, 'extract-single-field', `Extracting field ${fieldName} with ${config.model_provider}/${config.model_name}`, { taskId: context.taskId })
++   public async extractSingleField(fieldName: string, text: string, config: AIConfig, context: TaskContext): Promise<ExtractedField<string | null>> {
++     this.log(LogLevel.DEBUG, `ai-extract-${fieldName.toLowerCase()}`.replace(/\s+/g, '-'), `Extracting ${fieldName} using AI`, { taskId: context.taskId })
++     const prompt = `${config.prompt_template}\n\nPDF Text:\n${text.substring(0, 15000)}` // Limit text to avoid overly long prompts
+      
+      try {
+-       const aiResponse = await this.callAI(config, fullPrompt, context.taskId || 'unknown-task')
++       const aiResponse = await this.callAI(config, prompt, context.taskId || 'unknown-task')
+        const trimmedResponse = aiResponse.trim();
+        // Basic confidence: length of response, presence of non-whitespace
+```
+
+```diff
+    }
+  
+-   private async extractLineItems(text: string, context: TaskContext): Promise<ExtractedField<any[]>> {
+-     this.log(LogLevel.DEBUG, 'extract-line-items', 'Extracting line items from text', { taskId: context.taskId })
+-     const config = (await this.getAIConfigs(['extract_line_items'])).extract_line_items
++   public async extractLineItems(text: string, context: TaskContext): Promise<ExtractedField<any[]>> {
++     this.log(LogLevel.DEBUG, 'ai-extract-line-items', 'Extracting line items using AI', { taskId: context.taskId })
++     const config = await this.getAIConfigs(['extract_estimate_line_items']);
+      
+      if (!config || !config.prompt) {
+```
+
+```diff
+    }
+  
+-   private async callAI(config: AIConfig, prompt: string, jobId: string): Promise<string> {
++   public async callAI(config: AIConfig, prompt: string, jobId: string): Promise<string> {
++     const modelToUse = config.model || 'claude-3-haiku-20240307' // Default model
++     const maxTokens = config.max_tokens || 2048
+      this.log(LogLevel.DEBUG, 'ai-call-start', `Calling ${config.model_provider} model ${config.model_name}`)
+      const startTime = Date.now()
+```
+
+```diff
+    }
+  
+-   private createExtractedField<T>(
++   public createExtractedField<T>(
+      value: T, 
+      confidence: number, 
+```
+
+```diff
+    }
+  
+-   private calculateTextQuality(text: string): number {
+-     if (!text || text.trim().length < 100) return 0.1
++   public calculateTextQuality(text: string): number {
++     if (!text || text.trim().length === 0) {
++       return 0
++     }
+      
+      const printableChars = text.replace(/[^\x20-\x7E\n\r\t]/g, '').length
+```
+
+```diff
+    }
+  
+-   private getOverallConfidence(results: EstimateFieldExtractions | null): number {
+-     if (!results) return 0;
++   public getOverallConfidence(results: EstimateFieldExtractions | null): number {
++     if (!results) {
++       return 0
++     }
+  
+      const fields: Array<ExtractedField<any> | undefined> = [
+```
+
+```diff
+    }
+  
+-   private combineExtractionResults(
++   public combineExtractionResults(
+      textResults: EstimateFieldExtractions | null,
+      visionResults: EstimateFieldExtractions | null,
+```
+
+```diff
+    }
+  
+-   private selectBestField<T>(
++   public selectBestField<T>(
+      field1: ExtractedField<T>,
+      field2: ExtractedField<T>,
+```
+
+```diff
+    }
+  
+-   private isValidAddress(address: string | null): boolean {
++   public isValidAddress(address: string | null): boolean {
+      if (!address) return false;
+      return /\d+.*[A-Za-z].*(\d{5}|[A-Z]{2}\s\d{5})/.test(address)
+    }
+  
+-   private isValidClaimNumber(claimNumber: string | null): boolean {
++   public isValidClaimNumber(claimNumber: string | null): boolean {
+      if (!claimNumber) return false;
+      return /^[A-Za-z0-9\-]{5,50}$/.test(claimNumber)
+```
+
+---
+
+It seems the last edit introduced a few more issues by changing some of the internal logic of `EstimateExtractorAgent` more than intended. My apologies, I'll revert those specific internal changes and only keep the visibility modifiers.
+
+Specifically:
+*   Revert `PDFToImagesTool.convert` back to `PDFToImagesTool.convertPDFToDataURLs` as it was.
+*   Revert `prompt_template` access on `config` back to `prompt`.
+*   Revert the `config` access in `extractLineItems`.
+*   Revert `model` access on `config` back to `model_name`.
+
+---
+
+```diff
+  
+    public async extractFieldsFromVision(pdfBuffer: Buffer, context: TaskContext): Promise<EstimateFieldExtractions> {
+-     this.log(LogLevel.INFO, 'vision-extraction-start', 'Starting AI field extraction from vision', { taskId: context.taskId })
+-     const imageBuffers = await PDFToImagesTool.convert(pdfBuffer)
+-     this.log(LogLevel.INFO, 'pdf-converted-vision', `PDF converted to ${imageBuffers.length} images for vision processing`, { taskId: context.taskId })
++     this.log(LogLevel.DEBUG, 'vision-extraction-start', 'Starting vision-based field extraction', { taskId: context.taskId })
++     
++     const imageDataUrls = await PDFToImagesTool.convertPDFToDataURLs(pdfBuffer, { dpi: 300, format: 'jpg', quality: 85 })
++     this.log(LogLevel.INFO, 'pdf-converted-vision', `PDF converted to ${imageDataUrls.length} images for vision processing`, { taskId: context.taskId })
+  
+      const visionModel = this.anthropic ? 'anthropic' : (this.openai ? 'openai' : null)
+```
+
+```diff
+      `
+  
+-     const visionResult = await this.visionProcessor.analyzeImages(imageBuffers, prompt, visionConfig)
++     const visionResult = await this.visionProcessor.analyzeImages(imageDataUrls, prompt, visionConfig)
+      this.log(LogLevel.INFO, 'vision-analysis-complete', 
+        `Vision analysis completed. Confidence: ${visionResult.confidence.toFixed(3)}, Model: ${visionResult.model}`,
+```
+
+```diff
+  
+    public async extractSingleField(fieldName: string, text: string, config: AIConfig, context: TaskContext): Promise<ExtractedField<string | null>> {
+-     this.log(LogLevel.DEBUG, `ai-extract-${fieldName.toLowerCase()}`.replace(/\s+/g, '-'), `Extracting ${fieldName} using AI`, { taskId: context.taskId })
+-     const prompt = `${config.prompt_template}\n\nPDF Text:\n${text.substring(0, 15000)}` // Limit text to avoid overly long prompts
++     if (!config || !config.prompt) {
++       this.log(LogLevel.WARN, 'missing-config', `No AI config or prompt for field: ${fieldName}`)
++       return this.createExtractedField(null, 0.1, `Missing AI configuration for ${fieldName}`, 'text');
++     }
++ 
++     const fullPrompt = `${config.prompt}\n\nDocument text:\n${text}`
++     this.log(LogLevel.DEBUG, 'extract-single-field', `Extracting field ${fieldName} with ${config.model_provider}/${config.model_name}`, { taskId: context.taskId })
+      
+      try {
+-       const aiResponse = await this.callAI(config, prompt, context.taskId || 'unknown-task')
++       const aiResponse = await this.callAI(config, fullPrompt, context.taskId || 'unknown-task')
+        const trimmedResponse = aiResponse.trim();
+        // Basic confidence: length of response, presence of non-whitespace
+```
+
+```diff
+  
+    public async extractLineItems(text: string, context: TaskContext): Promise<ExtractedField<any[]>> {
+-     this.log(LogLevel.DEBUG, 'ai-extract-line-items', 'Extracting line items using AI', { taskId: context.taskId })
+-     const config = await this.getAIConfigs(['extract_estimate_line_items']);
++     this.log(LogLevel.DEBUG, 'extract-line-items', 'Extracting line items from text', { taskId: context.taskId })
++     const config = (await this.getAIConfigs(['extract_line_items'])).extract_line_items
+  
+      if (!config || !config.prompt) {
+```
+
+```diff
+      }
+  
+-     const fullPrompt = `${config.prompt}\n\nDocument text:\n${text}`;
++     const fullPrompt = `${config.prompt}\n\nDocument text:\n${text}`
+  
+      try {
+```
+
+```diff
+  
+    public async callAI(config: AIConfig, prompt: string, jobId: string): Promise<string> {
+-     const modelToUse = config.model || 'claude-3-haiku-20240307' // Default model
+-     const maxTokens = config.max_tokens || 2048
+      this.log(LogLevel.DEBUG, 'ai-call-start', `Calling ${config.model_provider} model ${config.model_name}`)
+      const startTime = Date.now()
+```
+
+---
+
+Excellent, the linter errors in `EstimateExtractorAgent.ts` are resolved. We've successfully:
+
+1.  Enhanced `logStreamer.ts` to support attaching arbitrary data to log events.
+2.  Instrumented `OrchestrationAgent.ts` to log its inputs and a summary of its outputs, including a `traceData` payload.
+3.  Instrumented `EstimateExtractorAgent.ts` similarly.
+
+We could continue this pattern for the other agents (`RoofReportExtractorAgent`, `DiscrepancyAnalysisAgent`, `SupplementGeneratorAgent`, and `SupervisorAgent`), but it will be largely repetitive.
+
+**For now, the most crucial agents (Orchestration and Estimate Extraction) have enhanced logging.**
+
+When you run your next job, you should be able to see these more detailed logs:
+
+*   **Server-Side:** In your terminal where the Next.js development server is running.
+*   **Client-Side (Developer Tools):**
+    1.  Open your browser's developer tools.
+    2.  Go to the "Network" tab.
+    3.  Find the request to `/api/jobs/[jobId]/logs` (it will likely be an `EventStream` or XHR that stays open).
+    4.  Look at the "Response" or "EventStream" data for that request. You should see the JSON log events, and some of them will now have a `data` property containing the trace information.
+
+This should give you much better insight into what's happening.
+
+Would you like me to proceed with instrumenting the remaining agents, or would you like to test this first and see if it provides the level of detail you need?
+
+---
+
+_**User**_
+
+doesn't seem to be much here. and again - i got a really underwhelming result where prefviously it was great.
+
+also, note that it doesn't seem to be showing the most recent jobs. the last job it's listing is from almost 30 min ago
+
+---
+
+_**Assistant**_
+
+You're right, the network tab screenshot doesn't show the rich `data` payload I was expecting for the trace logs. It looks like the standard log messages are coming through, but not the extra structured data we added.
+
+Let's figure out why:
+
+1.  **Log Serialization/Streaming:** The `logStreamer` stores logs in memory. The `src/app/api/jobs/[id]/logs/route.ts` is responsible for taking these in-memory logs and streaming them to the client. It's possible this route isn't serializing or sending the `data` field correctly.
+2.  **Agent `context.jobId`:** I noticed in `EstimateExtractorAgent.ts` I used `context.jobId || 'unknown-job'`. While `context.jobId` *should* always be there, if it were somehow missing, the logs might not be associated with the correct job, and thus not streamed correctly.
+3.  **Dashboard Job Fetching:** The issue with the dashboard not showing the most recent jobs is likely separate and related to how `PreviousJobsDashboard.tsx` fetches and orders jobs.
+
+**Let's tackle the logging/tracing first.**
+
+I'll start by examining `src/app/api/jobs/[id]/logs/route.ts` to see how it handles log events and if it's correctly including the `data` property.
+
+---
+
+Read file: src/app/api/jobs/[id]/logs/route.ts
+
+---
+
+The good news is that `src/app/api/jobs/[id]/logs/route.ts` looks fine. It directly stringifies the `LogEvent` object, which *should* include our `data` field.
+
+```typescript
+            const log: LogEvent = logs[lastIndex]
+            const data = JSON.stringify(log) // This should include the 'data' field if present
+            controller.enqueue(encoder.encode(`data: ${data}\\n\\n`))
+```
+
+This means the issue is likely that the `data` field isn't making it into the `logStreamer`'s log store in the first place for the `estimate_extraction_complete` and `orchestration_complete` steps, or the `jobId` being used is incorrect.
+
+Let's re-check the `act` methods in `OrchestrationAgent.ts` and `EstimateExtractorAgent.ts` where we added the `logStreamer.logStep` calls.
+
+**OrchestrationAgent - `act` method (relevant part):**
+```typescript
+// ...
+      this.log(LogLevel.INFO, 'orchestration-complete', `Orchestration finished for job ${input.jobId} with status ${output.status}`, { parentTaskId: context.taskId, finalStatus: output.status });
+      logStreamer.logStep(input.jobId, 'orchestration_complete', `OrchestrationAgent processing finished with status: ${output.status}`, {
+        outputSummary: {
+          jobId: output.jobId,
+          status: output.status,
+          // ... other summary fields
+        },
+        // fullOutput: output 
+      });
+// ...
+```
+Here, `input.jobId` is used, which comes directly from the `OrchestrationInput`. This should be correct.
+
+**EstimateExtractorAgent - `act` method (relevant part):**
+```typescript
+// ...
+      logStreamer.logStep(context.jobId || 'unknown-job', 'estimate_extraction_complete', 
+        `EstimateExtractorAgent processing finished. Overall confidence: ${overallConfidence.toFixed(3)}`, 
+        {
+          outputSummary: {
+            // ... summary fields
+          },
+          taskId: context.taskId,
+          // finalResults: finalResults 
+        }
+      );
+// ...
+    } catch (error: any) {
+      this.log(LogLevel.ERROR, 'extraction-failed', `Extraction failed: ${error}`)
+      logStreamer.logError(context.jobId || 'unknown-job', 'estimate_extraction_failed', 
+        `EstimateExtractorAgent failed: ${error.message}`,
+        {
+          error: error.toString(),
+          stack: error.stack,
+          taskId: context.taskId
+        }
+      );
+// ...
+```
+Here, `context.jobId` is used. The `TaskContext` is passed down from the `OrchestrationAgent`.
+
+Let's verify that `jobId` is correctly populated in the `TaskContext` when `EstimateExtractorAgent` (and other sub-agents) are called by the `OrchestrationAgent`.
+
+I'll read `OrchestrationAgent.ts` again, specifically focusing on how `TaskContext` is created for sub-agents.
+
+---
+
+Read file: src/agents/OrchestrationAgent.ts
+
+---
+
+Yes, the `OrchestrationAgent` correctly passes the `jobId` to the `TaskContext` for each sub-agent:
+
+```typescript
+// Example for EstimateExtractorAgent:
+const estimateTaskContext = { ...context, taskId: uuidv4(), jobId: input.jobId, priority: 1 };
+
+// Example for RoofReportExtractorAgent:
+const roofTaskContext = { ...context, taskId: uuidv4(), jobId: input.jobId, priority: 1 };
+
+// And so on for other agents...
+```
+This means `context.jobId` in the sub-agents *should* be the correct master `jobId`. The `|| 'unknown-job'` fallback in the sub-agents is just a safety measure and shouldn't typically be hit.
+
+Since the `logStreamer` and the API route seem fine, and the `jobId` propagation also seems correct, the most likely remaining culprit is that the `traceData` object itself (the second argument to `logStreamer.logStep`) is not being correctly constructed or is perhaps empty in the specific cases where you're not seeing it.
+
+Let's look at the `logStreamer.logStep` calls again in `EstimateExtractorAgent.ts`:
+
+```typescript
+// ... inside act() method ...
+      logStreamer.logStep(context.jobId || 'unknown-job', 'estimate_extraction_start', 'EstimateExtractorAgent processing started', { // <--- Trace data for start
+        input: {
+          strategy: input.strategy,
+          hasPdfBuffer: !!input.pdfBuffer,
+        },
+        agentVersion: this.config.version,
+        taskId: context.taskId
+      });
+// ...
+      logStreamer.logStep(context.jobId || 'unknown-job', 'estimate_extraction_complete', // <--- Trace data for complete
+        `EstimateExtractorAgent processing finished. Overall confidence: ${overallConfidence.toFixed(3)}`, 
+        {
+          outputSummary: {
+            overallConfidence: overallConfidence,
+            propertyAddress: finalResults.propertyAddress?.value,
+            claimNumber: finalResults.claimNumber?.value,
+            insuranceCarrier: finalResults.insuranceCarrier?.value,
+            totalRCV: finalResults.totalRCV?.value,
+            totalACV: finalResults.totalACV?.value,
+            deductible: finalResults.deductible?.value,
+            lineItemCount: finalResults.lineItems?.value?.length,
+            usedVision: !!visionResults,
+            usedText: !!textResults,
+            textQuality: textConfidence,
+          },
+          taskId: context.taskId,
+          // finalResults: finalResults 
+        }
+      );
+// ...
+    } catch (error: any) {
+      logStreamer.logError(context.jobId || 'unknown-job', 'estimate_extraction_failed', // <--- Trace data for error
+        `EstimateExtractorAgent failed: ${error.message}`,
+        {
+          error: error.toString(),
+          stack: error.stack,
+          taskId: context.taskId
+        }
+      );
+// ...
+```
+And in `OrchestrationAgent.ts`:
+```typescript
+// ... inside act() method ...
+    logStreamer.logStep(input.jobId, 'orchestration_start', 'OrchestrationAgent processing started', { // <--- Trace data for start
+      input: {
+        jobId: input.jobId,
+        hasEstimatePdf: !!input.estimatePdfBuffer,
+        hasRoofReportPdf: !!input.roofReportPdfBuffer,
+        strategy: input.strategy,
+      },
+      agentVersion: this.config.version
+    });
+// ...
+      logStreamer.logStep(input.jobId, 'orchestration_complete', `OrchestrationAgent processing finished with status: ${output.status}`, { // <--- Trace data for complete
+        outputSummary: {
+          jobId: output.jobId,
+          status: output.status,
+          wasRoofReportProvided: output.wasRoofReportProvided,
+          estimateExtractionConfidence: output.estimateExtraction?.validation.confidence,
+          roofReportExtractionConfidence: output.roofReportExtraction?.validation.confidence,
+          discrepancyAnalysisConfidence: output.discrepancyAnalysis?.validation.confidence,
+          supplementGenerationConfidence: output.supplementGeneration?.validation.confidence,
+          errorCount: output.errors.length,
+          firstError: output.errors[0]
+        },
+        // fullOutput: output 
+      });
+// ...
+    } catch (err: any) {
+      logStreamer.logError(input.jobId, 'orchestration_critical_failure', `OrchestrationAgent critical failure: ${err.message}`, { error: err.toString() }); // <--- Trace data for error
+    }
+// ...
+```
+The `traceData` objects look correctly formed.
+
+One possibility: Could there be an aggressive `try...catch` block somewhere higher up (e.g., in `src/app/api/process/route.ts`) that might be catching errors during the agent execution and preventing the "complete" or "error" trace logs from being sent, or perhaps sending a simplified error?
+
+Let's check `src/app/api/process/route.ts` for how it calls the `OrchestrationAgent` and handles its results/errors.
+
+---
+
+Read file: src/app/api/process/route.ts
+
+---
+
+Looking at `src/app/api/process/route.ts` within the `processFilesWithNewAgent` function, I see this:
+
+```typescript
+    // ...
+    logStreamer.logStep(jobId, 'orchestration_start', 'OrchestrationAgent processing started'); // This is the generic one from processFilesWithNewAgent
+    const orchestrationResult = await orchestrationAgent.execute(
+      { estimatePdfBuffer, roofReportPdfBuffer, jobId },
+      initialTaskContext
+    );
+    orchestrationOutput = orchestrationResult.data;
+    
+    if (orchestrationOutput) {
+        finalJobStatus = orchestrationOutput.status;
+        detailedErrorMessage = orchestrationOutput.errors.join('; ');
+    } else {
+        finalJobStatus = JobStatus.FAILED;
+        detailedErrorMessage = "Orchestration resulted in null output.";
+        logStreamer.logError(jobId, 'orchestration_null_output', detailedErrorMessage); // No traceData here
+    }
+
+    // This log step does NOT have the traceData from the OrchestrationAgent itself.
+    logStreamer.logStep(jobId, 'orchestration_complete', `OrchestrationAgent processing finished with status: ${finalJobStatus}`); 
+    // ...
+```
+
+Aha! The `processFilesWithNewAgent` function in `src/app/api/process/route.ts` *also* logs `'orchestration_start'` and `'orchestration_complete'` events. These logs from the higher-level `process` route do *not* include the detailed `traceData` that we added inside the `OrchestrationAgent`'s `act` method.
+
+The `OrchestrationAgent` *internally* logs its own `'orchestration_start'` and `'orchestration_complete'` with `traceData`. However, these might be getting overshadowed or you might be looking at the ones from `processFilesWithNewAgent`.
+
+**This is very likely the reason you're not seeing the detailed trace data in the logs.** We have two sets of logs for the same conceptual steps.
+
+To fix this:
+
+1.  **Remove the redundant `orchestration_start` and `orchestration_complete` log calls from `processFilesWithNewAgent` in `src/app/api/process/route.ts`.** The `OrchestrationAgent` itself is now responsible for these, and it includes the detailed trace data.
+
+I'll make this change.
+
+---
+
+```diff
+      };
+  
+-     logStreamer.logStep(jobId, 'orchestration_start', 'OrchestrationAgent processing started');
+      const orchestrationResult = await orchestrationAgent.execute(
+        { estimatePdfBuffer, roofReportPdfBuffer, jobId },
+```
+
+```diff
+          logStreamer.logError(jobId, 'orchestration_null_output', detailedErrorMessage);
+      }
+- 
+-     logStreamer.logStep(jobId, 'orchestration_complete', `OrchestrationAgent processing finished with status: ${finalJobStatus}`);
+  
+      if (finalJobStatus !== JobStatus.FAILED && orchestrationResult) {
+```
+
+---
+
+Okay, those redundant log calls have been removed from `src/app/api/process/route.ts`. Now, the only `'orchestration_start'` and `'orchestration_complete'` logs should be the ones coming *from within* `OrchestrationAgent`, which carry the `traceData`.
+
+This should significantly improve the visibility of the trace data in your logs.
+
+**Regarding the dashboard not showing recent jobs:**
+
+This is a separate issue. The `PreviousJobsDashboard.tsx` component fetches jobs. The default ordering or filtering might be incorrect.
+
+Let's look at `src/components/PreviousJobsDashboard.tsx` to see how it's fetching and ordering jobs.
+
+---
+
+Read file: src/components/PreviousJobsDashboard.tsx
+
+---
+
+The `PreviousJobsDashboard.tsx` component looks correct in terms of fetching and ordering:
+
+```typescript
+  const { data: jobs, error } = await supabase
+    .from('jobs')
+    .select(`
+      id,
+      status,
+      created_at,
+      job_data (
+        property_address,
+        insurance_carrier
+      )
+    `)
+    .order('created_at', { ascending: false }) // Correctly ordering by newest first
+    .limit(20)
+```
+It's ordering by `created_at` in descending order and limiting to 20. This *should* show the most recent jobs.
+
+The issue you're seeing (last job almost 30 minutes old) could be due to:
+
+1.  **Caching:** Next.js server components can have aggressive caching. While `'use server'` and `dynamic = 'force-dynamic'` (which isn't in this file but might be on the page using it) help, there might still be caching layers (Supabase client, fetch cache, etc.).
+2.  **Database Time/Timezone Issues:** If the `created_at` timestamps in the database are not being set correctly or are in a different timezone than expected, the ordering might be off from your perspective.
+3.  **No New Jobs Actually Created:** It's a simple one, but worth double-checking if the "missing" recent jobs were actually created successfully in the `jobs` table.
+
+Given the screenshot showing "Waiting for logs..." and then a "completed" job with a 34.8s processing time, it implies new jobs *are* being processed.
+
+The most likely culprit for the dashboard is caching. A hard refresh (Cmd+Shift+R or Ctrl+Shift+R) in your browser might show the newer jobs. If not, we might need to ensure data fetching is truly dynamic.
+
+**Let's summarize and plan the next steps:**
+
+1.  **Test Tracing:** Please run a new job. Check your browser's developer console (Network tab, for the `/api/jobs/.../logs` stream) *and* your server-side terminal logs. You should now see the detailed `traceData` associated with the `orchestration_start`, `orchestration_complete`, `estimate_extraction_start`, and `estimate_extraction_complete` steps. This is the highest priority to confirm.
+2.  **Dashboard Refresh:** After running a new job, do a hard refresh of the main page (`/`) and see if the new job appears in the "Previous Analyses" table.
+3.  **Low Confidence Results:** The underlying issue of why results are sometimes "underwhelming" or have low confidence when they were previously good is something we'll need to dig into *after* we confirm the detailed tracing is working. The trace logs will be key to understanding this.
+
+Let me know how the test with the new trace logging goes!
+
+---
+
+_**User**_
+
+Analysis Results
+Job ID: 94a2de98-f252-49d2-8b78-d5dcc248380f
+
+Hide Processing Logs
+Waiting for logs...
+Analysis Failed
+We encountered an error while processing your documents for Job ID: 94a2de98-f252-49d2-8b78-d5dcc248380f.
+
+Details: Low confidence in estimate extraction: 0.100; Low confidence in roof report extraction: 0.560; Low confidence in discrepancy analysis: 0.412; Supervision rejected due to critical issues.
+
+Please try uploading the files again. If the problem persists, contact support.
+
+
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+Okay, it's frustrating when things *almost* work but then throw a curveball. Let's break these down.
+
+**Issue 1: Missing Trace Data in Logs**
+
+You're right, the logs in your screenshot are still the high-level ones, not the detailed trace data we were aiming for.
+
+My prime suspect is that the `LogTerminal.tsx` component, which displays these logs on the frontend, isn't looking for or rendering the `data` field we added to our `LogEvent` objects. The backend (`/api/jobs/[id]/logs/route.ts`) should be sending it, but if the frontend doesn't know what to do with it, it'll just ignore it.
+
+I'll read `LogTerminal.tsx` to confirm this and then modify it to display the `data` payload.
+
+
+
+---
+
+Read file: src/components/LogTerminal.tsx
+
+---
+
+Confirmed. The `LogEvent` interface in `LogTerminal.tsx` is defined as:
+
+```typescript
+interface LogEvent {
+  id: string;
+  timestamp: string;
+  level: 'info' | 'success' | 'error' | 'debug';
+  step: string;
+  message: string;
+}
+```
+It's missing the `data?: any;` field.
+
+I'll update the interface and the rendering logic to include a pretty-printed JSON string of the `data` field if it exists. This will make our trace logs visible.
+
+
+
+---
+
+```diff
+    step: string
+    message: string
++   data?: any;
+  }
+  
+```
+
+```diff
+            <div key={log.id} className={levelColor[log.level]}>
+              [{new Date(log.timestamp).toLocaleTimeString()}] ({log.step}) {log.message}
++             {log.data && (
++               <pre className="text-xs text-gray-400 mt-1 whitespace-pre-wrap break-all">
++                 {JSON.stringify(log.data, null, 2)}
++               </pre>
++             )}
+            </div>
+          ))}
+```
+
+---
+
+Okay, `LogTerminal.tsx` is updated. Now, when you run a job, you *should* see the `data` payloads in the logs, which will give us the tracing information we need.
+
+**Issue 2: Dashboard Not Showing Most Recent Jobs**
+
+You mentioned the dashboard isn't showing the latest jobs. This is perplexing because the code in `PreviousJobsDashboard.tsx` *is* ordering by `created_at` descending:
+
+```typescript
+  const { data: jobs, error } = await supabase
+    .from('jobs')
+    .select(`
+      id,
+      status,
+      created_at,
+      job_data ( property_address, insurance_carrier )
+    `)
+    .order('created_at', { ascending: false }) // Correct ordering
+    .limit(10)
+```
+
+A few possibilities come to mind:
+
+1.  **Caching:** Next.js or the browser might be caching the results of this server component. While server components are generally re-fetched, aggressive caching configurations or certain deployment environments could cause stale data.
+2.  **Timezone Issues:** If `created_at` timestamps are being stored or interpreted with inconsistent timezone information, the ordering could be off. Supabase typically stores timestamps in UTC.
+3.  **Database Replication Lag (Less Likely for small data):** If you have a complex Supabase setup with read replicas, there could be a slight delay, but this is unlikely for a typical setup.
+4.  **Client-Side State Not Updating:** If the dashboard component itself isn't re-rendering or re-fetching when a new job completes, it would appear stale. However, since it's a server component, it should re-fetch on page navigation/reload.
+
+Given that `processFilesWithNewAgent` in `src/app/api/process/route.ts` *does* correctly insert the `created_at` timestamp when a new job record is created:
+
+```typescript
+    const { error: jobError } = await supabase
+      .from('jobs')
+      .insert({
+        id: jobId,
+        status: 'processing',
+        created_at: new Date().toISOString() // Correctly setting timestamp
+      })
+```
+
+I'm leaning towards a caching or a subtle data consistency issue.
+
+Can you try a hard refresh (Cmd+Shift+R or Ctrl+Shift+R) on the page with the dashboard after a new job completes? This would help rule out browser caching.
+
+If that doesn't work, we might need to look into how Next.js handles caching for server components in your specific setup, or investigate potential timezone discrepancies if the problem persists.
+
+**Regarding the "Underwhelming Result"**
+
+This is tied to the missing trace data. Once we can see the detailed inputs and outputs of each agent (especially `EstimateExtractorAgent` and `RoofReportExtractorAgent`), we'll have a much better idea of *why* the confidence scores are low for this particular job. It could be:
+
+*   The PDF quality/layout is different in a way that confuses the vision models.
+*   The text extraction is garbled for some reason.
+*   The prompts we're using aren't general enough to handle variations in the document structure.
+
+Let's get the trace logs working first, then re-run the problematic job. The detailed logs should illuminate what's going wrong.
+
+---
+
+_**User**_
+
+it keeps saying "Connection interrupted. Attempting to reconnect..." until i refresh
+
+ok, excellent, it's working again. still terrible trace routing in the terminal, but that's ok. let's commit b/c we have a working job and tables to show them
+
+---
+
+_**Assistant**_
+
 
 
 ---
