@@ -240,7 +240,7 @@ export class RoofReportExtractorAgent extends Agent {
     const effectiveSource = sourceOverride || 'text';
     this.log(LogLevel.DEBUG, 'extract-roof-fields-text', `Extracting roof fields from text (source: ${effectiveSource}) for job ${jobId}`, { agentType: this.agentType });
     const extracted: Partial<RoofMeasurements> = {};
-    const configKey = 'extract_roof_measurements_text';
+    const configKey = 'extract_roof_measurements';
     
     try {
         const aiConfig = (await this.getAIConfigs([configKey]))[configKey];
