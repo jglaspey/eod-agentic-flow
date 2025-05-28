@@ -237,8 +237,12 @@ async function processFilesWithNewAgent(
     const generatedSupplements = orchestrationOutput?.supplementGeneration?.data?.generatedSupplements;
     if (generatedSupplements && generatedSupplements.length > 0) {
       logStreamer.logStep(jobId, 'supplement_items_insertion', `Inserting ${generatedSupplements.length} supplement items`);
+      
+      // Delete any existing supplement items for this job to prevent duplicates
+      await supabase.from('supplement_items').delete().eq('job_id', jobId);
+      
       const supplementInserts = generatedSupplements.map((item: GeneratedSupplementItem) => ({
-        id: item.id || uuidv4(),
+        id: uuidv4(), // Always generate new UUIDs to prevent conflicts
         job_id: jobId,
         line_item: item.description,
         xactimate_code: item.xactimateCode || undefined,

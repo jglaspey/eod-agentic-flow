@@ -38,8 +38,6 @@ export interface DiscrepancyAnalysisOutput {
  */
 export class DiscrepancyAnalyzerAgent extends Agent {
   private supabase = getSupabaseClient();
-  private openai: OpenAI | null = null;
-  private anthropic: Anthropic | null = null;
 
   constructor() {
     const config: AgentConfig = {
@@ -53,12 +51,7 @@ export class DiscrepancyAnalyzerAgent extends Agent {
     };
     super(config);
 
-    if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_api_key_here') {
-      this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    }
-    if (process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY !== 'your_anthropic_api_key_here') {
-      this.anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-    }
+    // AI clients are initialized in the base Agent class
   }
 
   get agentType(): AgentType {
@@ -124,7 +117,7 @@ export class DiscrepancyAnalyzerAgent extends Agent {
     } catch (ruleError) {
         this.log(LogLevel.ERROR, 'supplement-rule-error', `Error during supplement rule evaluation: ${ruleError}`, { taskId: context.taskId, error: ruleError });
         analysisOutput.consistencyWarnings.push(`Error during rule evaluation: ${ruleError}`);
-        analysisOutput.overallAssessmentConfidence = Math.min(analysisOutput.overallAssessmentConfidence, 0.3);
+        // Note: Rule evaluation error occurred, will be factored into final confidence calculation
     }
     
     // 2. Basic check for roof area consistency (example)
@@ -149,16 +142,16 @@ export class DiscrepancyAnalyzerAgent extends Agent {
                 analysisOutput.consistencyWarnings.push(
                     `Significant roof area discrepancy: Estimate total ~${estimateTotalAreaSqFt.toFixed(0)} sq ft, Roof Report total ${reportTotalAreaSqFt.toFixed(0)} sq ft. Difference: ${(diffPercentage * 100).toFixed(1)}%`
                 );
-                analysisOutput.overallAssessmentConfidence = Math.min(analysisOutput.overallAssessmentConfidence, 0.4);
+                // Note: Significant area discrepancy found, will be factored into final confidence
             } else if (diffPercentage > 0.10) { // 10-20% difference
                  analysisOutput.consistencyWarnings.push(
                     `Potential roof area discrepancy: Estimate total ~${estimateTotalAreaSqFt.toFixed(0)} sq ft, Roof Report total ${reportTotalAreaSqFt.toFixed(0)} sq ft. Difference: ${(diffPercentage * 100).toFixed(1)}%`
                 );
-                 analysisOutput.overallAssessmentConfidence = Math.min(analysisOutput.overallAssessmentConfidence, 0.5);
+                 // Note: Potential area discrepancy found, will be factored into final confidence
             }
         } else if (reportTotalAreaSqFt > 0 && estimateTotalAreaSqFt === 0) {
             analysisOutput.consistencyWarnings.push('Roof area is present in roof report but seems missing or zero in estimate line items.');
-            analysisOutput.overallAssessmentConfidence = Math.min(analysisOutput.overallAssessmentConfidence, 0.45);
+            // Note: Missing roof area in estimate, will be factored into final confidence
         }
     }
 
@@ -171,12 +164,29 @@ export class DiscrepancyAnalyzerAgent extends Agent {
     //   // Potentially call an AI to summarize findings or look for deeper issues
     // }
     
-    // Adjust overall confidence based on findings
+    // Calculate final confidence based on analysis quality and findings
+    let finalConfidence = 0.7; // Base confidence for completed analysis
+    
+    // Factor in quality of input data
+    const estimateConfidence = estimateData?.validation?.confidence || 0;
+    const roofReportConfidence = roofReportData?.validation?.confidence || 0;
+    const avgInputConfidence = (estimateConfidence + roofReportConfidence) / 2;
+    
+    // Weight final confidence: 60% from analysis completion, 40% from input quality
+    finalConfidence = finalConfidence * 0.6 + avgInputConfidence * 0.4;
+    
+    // Adjust based on findings (but don't penalize too heavily for finding real issues)
     if (analysisOutput.missingItems.length > 0 || analysisOutput.consistencyWarnings.length > 0) {
-        analysisOutput.overallAssessmentConfidence = Math.max(0.3, analysisOutput.overallAssessmentConfidence - 0.1 * (analysisOutput.missingItems.length + analysisOutput.consistencyWarnings.length));
+        // Slight reduction for issues found, but this might actually be good analysis
+        const issueCount = analysisOutput.missingItems.length + analysisOutput.consistencyWarnings.length;
+        const issueReduction = Math.min(0.2, issueCount * 0.05); // Max 20% reduction
+        finalConfidence = Math.max(0.4, finalConfidence - issueReduction);
     } else {
-        analysisOutput.overallAssessmentConfidence = Math.min(0.9, analysisOutput.overallAssessmentConfidence + 0.2); // Increase if no issues found
+        // Bonus for clean analysis (no issues found)
+        finalConfidence = Math.min(0.9, finalConfidence + 0.1);
     }
+    
+    analysisOutput.overallAssessmentConfidence = finalConfidence;
 
     this.log(LogLevel.SUCCESS, 'discrepancy-analysis-complete', 
         `Discrepancy analysis finished. Missing: ${analysisOutput.missingItems.length}, Warnings: ${analysisOutput.consistencyWarnings.length}`,
@@ -235,9 +245,5 @@ export class DiscrepancyAnalyzerAgent extends Agent {
   }
 
   // Placeholder for AI call wrapper (if needed for this agent)
-  private async callAI(config: AIConfig, prompt: string, jobId: string): Promise<string> {
-    this.log(LogLevel.DEBUG, 'discrepancy-ai-call-start', `Calling ${config.model_provider} model ${config.model_name} for task ${jobId}`);
-    // Actual AI call logic using this.openai or this.anthropic
-    return '';
-  }
+  // Using base class callAI method
 } 

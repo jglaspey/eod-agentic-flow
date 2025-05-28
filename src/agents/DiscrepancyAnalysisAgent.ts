@@ -32,8 +32,6 @@ interface DiscrepancyAnalysisInput {
  */
 export class DiscrepancyAnalysisAgent extends Agent {
   private supabase = getSupabaseClient();
-  private openai: OpenAI | null = null;
-  private anthropic: Anthropic | null = null;
 
   constructor() {
     const config: AgentConfig = {
@@ -47,12 +45,7 @@ export class DiscrepancyAnalysisAgent extends Agent {
     };
     super(config);
 
-    if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_api_key_here') {
-      this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    }
-    if (process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY !== 'your_anthropic_api_key_here') {
-      this.anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-    }
+    // AI clients are initialized in the base Agent class
   }
 
   get agentType(): AgentType {
@@ -421,50 +414,5 @@ export class DiscrepancyAnalysisAgent extends Agent {
     return configs;
   }
 
-  private async callAI(config: AIConfig, prompt: string, jobId: string): Promise<string> {
-    this.log(LogLevel.DEBUG, 'discrepancy-ai-call-start', `Calling ${config.model_provider} model ${config.model_name} for task ${jobId}`, { agentType: this.agentType });
-    const startTime = Date.now();
-    try {
-      let responseText = '';
-      const messages = [{ role: 'user' as const, content: prompt }];
-
-      if (config.model_provider === 'openai' && this.openai) {
-        const response = await this.openai.chat.completions.create({
-          model: config.model_name || 'gpt-3.5-turbo',
-          messages: messages,
-          max_tokens: config.max_tokens || 1000,
-          temperature: config.temperature || 0.3,
-          response_format: { type: "json_object" },
-        });
-        responseText = response.choices[0]?.message?.content || '';
-      } else if (config.model_provider === 'anthropic' && this.anthropic) {
-        const systemPrompt = "You are an expert data analyst. Your responses MUST be in JSON format, matching the structure requested in the user prompt.";
-        const response = await this.anthropic.messages.create({
-          model: config.model_name || 'claude-3-haiku-20240307',
-          max_tokens: config.max_tokens || 1000,
-          temperature: config.temperature || 0.3,
-          system: systemPrompt,
-          messages: messages
-        });
-        responseText = Array.isArray(response.content) && response.content[0]?.type === 'text' ? response.content[0].text : '';
-      } else {
-        throw new Error(`Unsupported AI provider or client not initialized for discrepancy analysis: ${config.model_provider}`);
-      }
-      
-      const duration = Date.now() - startTime;
-      this.log(LogLevel.INFO, 'discrepancy-ai-call-success', 
-        `${config.model_provider} call for ${jobId} completed in ${duration}ms. Output length: ${responseText.length}`,
-        { duration, outputLength: responseText.length, provider: config.model_provider, model: config.model_name, agentType: this.agentType }
-      );
-      return responseText;
-
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      this.log(LogLevel.ERROR, 'discrepancy-ai-call-error', 
-        `${config.model_provider} call for ${jobId} failed after ${duration}ms: ${error}`,
-        { duration, error, provider: config.model_provider, model: config.model_name, agentType: this.agentType }
-      );
-      throw error;
-    }
-  }
+  // Using base class callAI method
 } 

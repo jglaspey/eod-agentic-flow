@@ -14,7 +14,8 @@ import {
   AIConfig,
   DiscrepancyReport,
   ExtractionStrategy,
-  AgentTask
+  AgentTask,
+  OrchestrationOutput
 } from './types';
 import { EstimateExtractorAgent } from './EstimateExtractorAgent';
 import { RoofReportExtractorAgent } from './RoofReportExtractorAgent';
@@ -22,6 +23,9 @@ import { DiscrepancyAnalysisAgent } from './DiscrepancyAnalysisAgent';
 import { SupplementGeneratorAgent } from './SupplementGeneratorAgent';
 import { v4 as uuidv4 } from 'uuid';
 import { logStreamer } from '@/lib/log-streamer'; // Import logStreamer
+import { AIOrchestrator } from '@/lib/ai-orchestrator'; // Added
+import { JobData, LineItem as DBLineItem, SupplementItem as DBSupplementItem } from '@/types'; // Added for DB types
+import { getSupabaseClient } from '@/lib/supabase'; // Added for saving JobData
 
 interface OrchestrationInput {
   estimatePdfBuffer: Buffer;
@@ -32,17 +36,7 @@ interface OrchestrationInput {
 }
 
 // The final output of the entire orchestration process
-export interface OrchestrationOutput {
-  jobId: string;
-  status: JobStatus;
-  wasRoofReportProvided?: boolean; // Added
-  estimateExtraction?: AgentResult<EstimateFieldExtractions>;
-  roofReportExtraction?: AgentResult<RoofMeasurements>;
-  discrepancyAnalysis?: AgentResult<DiscrepancyReport>;
-  supplementGeneration?: AgentResult<SupplementGenerationOutput>;
-  errors: string[];
-  finalSupplementText?: string; // A combined, formatted supplement if applicable
-}
+// OrchestrationOutput interface moved to types.ts
 
 /**
  * OrchestrationAgent manages the overall workflow of document processing and supplement generation.
@@ -149,8 +143,11 @@ export class OrchestrationAgent extends Agent {
       jobId: input.jobId,
       status: JobStatus.IN_PROGRESS,
       wasRoofReportProvided: !!input.roofReportPdfBuffer,
-      errors: []
+      errors: [],
+      warnings: []
     };
+    
+    const supabase = getSupabaseClient(); // Added for saving
 
     try {
       // 1. Extract from Estimate PDF
@@ -164,7 +161,7 @@ export class OrchestrationAgent extends Agent {
         );
         if (output.estimateExtraction.validation.confidence < estimateAgent.getConfig().confidenceThreshold) {
             this.log(LogLevel.WARN, 'low-estimate-confidence', `Estimate extraction confidence (${output.estimateExtraction.validation.confidence.toFixed(3)}) below threshold (${estimateAgent.getConfig().confidenceThreshold}).`, {jobId: input.jobId, agentType: this.agentType});
-            output.errors.push(`Low confidence in estimate extraction: ${output.estimateExtraction.validation.confidence.toFixed(3)}`);
+            output.warnings.push(`Low confidence in estimate extraction: ${output.estimateExtraction.validation.confidence.toFixed(3)}`);
         }
       } catch (err: any) {
         this.log(LogLevel.ERROR, 'estimate-extraction-failed-orchestration', `EstimateExtractorAgent failed: ${err.message}`, { jobId: input.jobId, error: err.toString(), agentType: this.agentType });
@@ -183,7 +180,7 @@ export class OrchestrationAgent extends Agent {
             );
             if (output.roofReportExtraction.validation.confidence < roofReportAgent.getConfig().confidenceThreshold) {
                 this.log(LogLevel.WARN, 'low-roof-report-confidence', `Roof report extraction confidence (${output.roofReportExtraction.validation.confidence.toFixed(3)}) below threshold (${roofReportAgent.getConfig().confidenceThreshold}).`, {jobId: input.jobId, agentType: this.agentType});
-                output.errors.push(`Low confidence in roof report extraction: ${output.roofReportExtraction.validation.confidence.toFixed(3)}`);
+                output.warnings.push(`Low confidence in roof report extraction: ${output.roofReportExtraction.validation.confidence.toFixed(3)}`);
             }
         } catch (err: any) {
             this.log(LogLevel.ERROR, 'roof-extraction-failed-orchestration', `RoofReportExtractorAgent failed: ${err.message}`, { jobId: input.jobId, error: err.toString(), agentType: this.agentType });
@@ -192,6 +189,72 @@ export class OrchestrationAgent extends Agent {
       } else {
         this.log(LogLevel.INFO, 'skip-roof-report-extraction', 'No roof report PDF provided, skipping extraction.', { jobId: input.jobId, agentType: this.agentType });
       }
+
+      // --- BEGIN NEW JobData Construction & Saving ---
+      let fullJobData: JobData | null = null;
+      let estimateLineItemsForSupplement: DBLineItem[] = [];
+
+      if (output.estimateExtraction?.data) {
+        // Map EstimateFieldExtractions to flat JobData
+        const estimateData = output.estimateExtraction.data;
+        const roofData = output.roofReportExtraction?.data; // Might be null
+
+        // Extract and map line items from ExtractedField<EstimateLineItem[]> to DBLineItem[]
+        if (estimateData.lineItems?.value) {
+            estimateLineItemsForSupplement = estimateData.lineItems.value.map((item): DBLineItem => ({
+                description: item.description || 'N/A',
+                quantity: typeof item.quantity === 'string' ? parseFloat(item.quantity) : (item.quantity || 0),
+                unit: item.unit || 'N/A',
+                unitPrice: item.unitPrice === null || item.unitPrice === undefined ? undefined : item.unitPrice,
+                totalPrice: item.totalPrice === null || item.totalPrice === undefined ? undefined : item.totalPrice,
+                code: (item as any).code || undefined, // Attempt to map code if agent provides it, type cast to avoid lint error if not in EstimateLineItem strict type
+            }));
+        }
+        
+        // Construct the JobData object for saving
+        const jobDataToSave: Partial<JobData> = {
+          id: input.jobId, // PK for job_data table, assuming it's the same as jobs.id
+          job_id: input.jobId, // FK to jobs table
+          // From Estimate
+          property_address: estimateData.propertyAddress?.value || undefined,
+          claim_number: estimateData.claimNumber?.value || undefined,
+          insurance_carrier: estimateData.insuranceCarrier?.value || undefined,
+          date_of_loss: estimateData.dateOfLoss?.value ? new Date(estimateData.dateOfLoss.value).toISOString() : undefined,
+          total_rcv: estimateData.totalRCV?.value || undefined,
+          total_acv: estimateData.totalACV?.value || undefined,
+          deductible: estimateData.deductible?.value || undefined,
+          // From Roof Report (if available)
+          roof_area_squares: roofData?.totalRoofArea?.value || undefined,
+          eave_length: roofData?.eaveLength?.value || estimateData.eaveLength?.value || undefined,
+          rake_length: roofData?.rakeLength?.value || estimateData.rakeLength?.value || undefined,
+          ridge_hip_length: roofData?.ridgeHipLength?.value || estimateData.ridgeAndHipLength?.value || undefined,
+          valley_length: roofData?.valleyLength?.value || estimateData.valleyLength?.value || undefined,
+          stories: roofData?.stories?.value || estimateData.stories?.value || undefined,
+          pitch: roofData?.pitch?.value || estimateData.pitch?.value || undefined,
+          // estimate_confidence, roof_report_confidence, supervisor_outcome etc. are in JobData type
+          // and should be populated by the SupervisorAgent or later in the process if not here.
+        };
+
+        logStreamer.logStep(input.jobId, 'job_data_save_start', 'Attempting to save constructed JobData.', { jobData: jobDataToSave });
+        const { data: savedJobData, error: jobDataSaveError } = await supabase
+          .from('job_data')
+          .upsert(jobDataToSave, { onConflict: 'id' }) // Upsert based on job ID
+          .select()
+          .single();
+
+        if (jobDataSaveError) {
+          this.log(LogLevel.ERROR, 'job-data-save-failed', `Failed to save JobData: ${jobDataSaveError.message}`, { jobId: input.jobId, error: jobDataSaveError });
+          output.errors.push(`Failed to save core job data: ${jobDataSaveError.message}`);
+          // Decide if this is a critical failure for the entire orchestration
+        } else {
+          this.log(LogLevel.SUCCESS, 'job-data-save-success', 'JobData saved successfully.', { jobId: input.jobId, savedData: savedJobData });
+          fullJobData = savedJobData as JobData; // Cast to full JobData
+        }
+      } else {
+          this.log(LogLevel.WARN, 'skip-job-data-save-no-estimate', 'Skipping JobData save as estimate extraction failed or produced no data.', { jobId: input.jobId });
+          output.errors.push('Skipped JobData save: Estimate data unavailable.');
+      }
+      // --- END NEW JobData Construction & Saving ---
 
       // 3. Discrepancy Analysis
       // Runs if estimate data is available. Handles null roof data internally.
@@ -210,7 +273,7 @@ export class OrchestrationAgent extends Agent {
             );
             if (output.discrepancyAnalysis.validation.confidence < discrepancyAgent.getConfig().confidenceThreshold) {
                 this.log(LogLevel.WARN, 'low-discrepancy-analysis-confidence', `Discrepancy analysis confidence (${output.discrepancyAnalysis.validation.confidence.toFixed(3)}) below threshold (${discrepancyAgent.getConfig().confidenceThreshold}).`, {jobId: input.jobId, agentType: this.agentType});
-                output.errors.push(`Low confidence in discrepancy analysis: ${output.discrepancyAnalysis.validation.confidence.toFixed(3)}`);
+                output.warnings.push(`Low confidence in discrepancy analysis: ${output.discrepancyAnalysis.validation.confidence.toFixed(3)}`);
             }
         } catch (err: any) {
             this.log(LogLevel.ERROR, 'discrepancy-analysis-failed-orchestration', `DiscrepancyAnalysisAgent failed: ${err.message}`, { jobId: input.jobId, error: err.toString(), agentType: this.agentType });
@@ -223,7 +286,7 @@ export class OrchestrationAgent extends Agent {
 
       // 4. Supplement Generation
       // Runs if estimate data is available. Handles null roof/discrepancy data internally.
-      if (output.estimateExtraction?.data) {
+      if (output.estimateExtraction?.data && fullJobData) { // Ensure fullJobData is available
         const supplementAgent = new SupplementGeneratorAgent();
         const supplementTaskContext = { ...context, taskId: uuidv4(), jobId: input.jobId, priority: 3 };
         this.log(LogLevel.DEBUG, 'orchestration-run-supplement-agent', `Running SupplementGeneratorAgent for job ${input.jobId}`, { context: supplementTaskContext });
@@ -231,16 +294,23 @@ export class OrchestrationAgent extends Agent {
             output.supplementGeneration = await supplementAgent.execute(
                 { 
                     jobId: input.jobId,
-                    estimateExtractionData: output.estimateExtraction.data, 
-                    roofReportData: output.roofReportExtraction?.data || null, 
-                    discrepancyReport: output.discrepancyAnalysis?.data || null,
-                    estimateLineItems: output.estimateExtraction.data.lineItems // This is mandatory on EstimateFieldExtractions
+                    // The following lines are intentionally commented out as these specific structures
+                    // might not be directly needed if SupplementGeneratorAgent primarily uses
+                    // the new jobData and actualEstimateLineItems for AIOrchestrator.
+                    // estimateExtractionData: output.estimateExtraction.data, 
+                    // roofReportData: output.roofReportExtraction?.data || null, 
+                    // discrepancyReport: output.discrepancyAnalysis?.data || null,
+                    // estimateLineItems: output.estimateExtraction.data.lineItems, 
+                    
+                    // --- NEW INPUTS for AIOrchestrator powered SupplementGeneratorAgent ---
+                    jobData: fullJobData, // Pass the fully constructed and saved JobData
+                    actualEstimateLineItems: estimateLineItemsForSupplement, // Pass the DBLineItem[]
                 }, 
                 supplementTaskContext
             );
             if (output.supplementGeneration.validation.confidence < supplementAgent.getConfig().confidenceThreshold) {
                 this.log(LogLevel.WARN, 'low-supplement-generation-confidence', `Supplement generation confidence (${output.supplementGeneration.validation.confidence.toFixed(3)}) below threshold (${supplementAgent.getConfig().confidenceThreshold}).`, {jobId: input.jobId, agentType: this.agentType});
-                output.errors.push(`Low confidence in supplement generation: ${output.supplementGeneration.validation.confidence.toFixed(3)}`);
+                output.warnings.push(`Low confidence in supplement generation: ${output.supplementGeneration.validation.confidence.toFixed(3)}`);
             }
             // TODO: output.finalSupplementText could be populated here if SupplementGenerationOutput provides a combined text.
         } catch (err: any) {
@@ -303,8 +373,8 @@ export class OrchestrationAgent extends Agent {
   }
 
   async validate(result: OrchestrationOutput, context: TaskContext): Promise<ValidationResult> {
-    this.log(LogLevel.INFO, 'validating-orchestration', `Validating orchestration result for job ${result.jobId}`, {agentType: this.agentType});
-    const errors: string[] = [];
+    this.log(LogLevel.INFO, 'validating-orchestration', `Validating orchestration output for job ${result.jobId}`, { parentTaskId: context.taskId });
+    const errors: string[] = [...result.errors]; // Start with errors collected during 'act'
     const warnings: string[] = [];
     const suggestions: string[] = [];
     let confidence = 0.0;

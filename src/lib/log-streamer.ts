@@ -1,58 +1,179 @@
+import { v4 as uuidv4 } from 'uuid'
+
+/**
+ * Defines the structure for a log event.
+ */
 export interface LogEvent {
   id: string;
   timestamp: Date;
-  level: 'info' | 'success' | 'error' | 'debug';
-  step: string;
+  level: 'info' | 'success' | 'error' | 'debug' | 'ai-prompt' | 'ai-response';
+  step: string; // e.g., 'estimate-extraction', 'database-save'
   message: string;
-  data?: any;
+  data?: any; // Optional structured data like AI confidence, specific extracted values
 }
 
-class LogStreamer {
-  private logs: Map<string, LogEvent[]> = new Map();
+/**
+ * In-memory log streamer for collecting and providing logs during job processing.
+ * Logs are stored per job ID.
+ */
+export class LogStreamer {
+  private static instance: LogStreamer;
+  private jobLogs: Map<string, LogEvent[]> = new Map();
+  private logListeners: Map<string, ((log: LogEvent) => void)[]> = new Map();
 
-  addLog(jobId: string, event: Omit<LogEvent, 'id' | 'timestamp'>) {
-    const log: LogEvent = {
-      id: crypto.randomUUID(),
-      timestamp: new Date(),
+  private constructor() {}
+
+  /**
+   * Gets the singleton instance of LogStreamer.
+   */
+  public static getInstance(): LogStreamer {
+    if (!LogStreamer.instance) {
+      LogStreamer.instance = new LogStreamer();
+    }
+    return LogStreamer.instance;
+  }
+
+  /**
+   * Adds a log event for a specific job.
+   * @param jobId The ID of the job.
+   * @param event The log event details (excluding id and timestamp, which are auto-generated).
+   */
+  public addLog(jobId: string, event: Omit<LogEvent, 'id' | 'timestamp'>): LogEvent {
+    if (!this.jobLogs.has(jobId)) {
+      this.jobLogs.set(jobId, []);
+    }
+    const newLog: LogEvent = {
       ...event,
+      id: uuidv4(),
+      timestamp: new Date(),
     };
-    const jobLogs = this.logs.get(jobId) || [];
-    jobLogs.push(log);
-    this.logs.set(jobId, jobLogs);
+    this.jobLogs.get(jobId)?.push(newLog);
+    
+    // Notify listeners for this job
+    const listeners = this.logListeners.get(jobId);
+    if (listeners) {
+      listeners.forEach(listener => listener(newLog));
+    }
+    return newLog;
   }
 
-  getLogs(jobId: string): LogEvent[] {
-    return this.logs.get(jobId) || [];
+  /**
+   * Retrieves all logs for a specific job.
+   * @param jobId The ID of the job.
+   * @returns An array of log events, or an empty array if no logs exist for the job.
+   */
+  public getLogs(jobId: string): LogEvent[] {
+    return this.jobLogs.get(jobId) || [];
   }
 
-  clearLogs(jobId: string) {
-    this.logs.delete(jobId);
+  /**
+   * Clears all logs for a specific job.
+   * Typically called when a job is fully completed or archived.
+   * @param jobId The ID of the job.
+   */
+  public clearLogs(jobId: string): void {
+    this.jobLogs.delete(jobId);
+    this.logListeners.delete(jobId); // Also clear listeners
   }
 
-  logStep(jobId: string, step: string, message: string, traceData?: any) {
-    this.addLog(jobId, { level: 'info', step, message, data: traceData });
+  /**
+   * Adds a listener for new log events for a specific job.
+   * Used by the SSE endpoint to stream logs.
+   * @param jobId The ID of the job.
+   * @param listener The callback function to execute when a new log is added.
+   * @returns A function to remove the listener.
+   */
+  public addLogListener(jobId: string, listener: (log: LogEvent) => void): () => void {
+    if (!this.logListeners.has(jobId)) {
+      this.logListeners.set(jobId, []);
+    }
+    this.logListeners.get(jobId)?.push(listener);
+
+    return () => {
+      const listeners = this.logListeners.get(jobId);
+      if (listeners) {
+        const index = listeners.indexOf(listener);
+        if (index > -1) {
+          listeners.splice(index, 1);
+        }
+      }
+    };
   }
 
-  logAIPrompt(jobId: string, step: string, prompt: string, traceData?: any) {
-    this.addLog(jobId, { level: 'debug', step, message: `PROMPT:\n${prompt}`, data: traceData });
+  // --- Structured logging methods ---
+
+  /**
+   * Logs a general step in the process.
+   * @param jobId Job ID.
+   * @param step A short identifier for the processing stage (e.g., 'pdf-parse', 'ai-analysis').
+   * @param message A descriptive message about the step.
+   * @param data Optional additional data.
+   */
+  public logStep(jobId: string, step: string, message: string, data?: any): void {
+    this.addLog(jobId, { level: 'info', step, message, data });
   }
 
-  logAIResponse(jobId: string, step: string, response: string, confidence?: number, traceData?: any) {
-    this.addLog(jobId, {
-      level: 'debug',
-      step,
-      message: `RESPONSE${confidence ? ` (confidence: ${confidence})` : ''}:\n${response}`,
-      data: traceData,
+  /**
+   * Logs an AI prompt being sent.
+   * @param jobId Job ID.
+   * @param step The step during which the AI call is made.
+   * @param prompt The full prompt sent to the AI.
+   * @param model The AI model being used.
+   */
+  public logAIPrompt(jobId: string, step: string, prompt: string, model?: string): void {
+    this.addLog(jobId, { level: 'ai-prompt', step, message: `AI Prompt sent (model: ${model || 'N/A'}):`, data: { prompt } });
+  }
+
+  /**
+   * Logs an AI response received.
+   * @param jobId Job ID.
+   * @param step The step during which the AI call was made.
+   * @param response The raw or processed response from the AI.
+   * @param confidence Optional confidence score from the AI.
+   * @param rawResponse Optional raw response string.
+   */
+  public logAIResponse(jobId: string, step: string, message: string, data?: any, confidence?: number, rawResponse?: string): void {
+    this.addLog(jobId, { 
+      level: 'ai-response', 
+      step, 
+      message, 
+      data: { ...data, confidence, rawResponse }
     });
   }
-
-  logError(jobId: string, step: string, error: string, traceData?: any) {
-    this.addLog(jobId, { level: 'error', step, message: error, data: traceData });
+  
+  /**
+   * Logs an error that occurred during processing.
+   * @param jobId Job ID.
+   * @param step The step where the error occurred.
+   * @param errorMessage The error message.
+   * @param errorObject Optional error object or stack trace.
+   */
+  public logError(jobId: string, step: string, errorMessage: string, errorObject?: any): void {
+    this.addLog(jobId, { level: 'error', step, message: errorMessage, data: { error: errorObject } });
   }
 
-  logSuccess(jobId: string, step: string, message: string, traceData?: any) {
-    this.addLog(jobId, { level: 'success', step, message, data: traceData });
+  /**
+   * Logs a successful completion of a significant step or the entire job.
+   * @param jobId Job ID.
+   * @param step The step that succeeded.
+   * @param message A success message.
+   * @param data Optional additional data.
+   */
+  public logSuccess(jobId: string, step: string, message: string, data?: any): void {
+    this.addLog(jobId, { level: 'success', step, message, data });
+  }
+
+   /**
+   * Logs a debug message.
+   * @param jobId Job ID.
+   * @param step The step relevant to the debug message.
+   * @param message The debug message.
+   * @param data Optional additional data.
+   */
+  public logDebug(jobId: string, step: string, message: string, data?: any): void {
+    this.addLog(jobId, { level: 'debug', step, message, data });
   }
 }
 
-export const logStreamer = new LogStreamer();
+// Export a singleton instance
+export const logStreamer = LogStreamer.getInstance();

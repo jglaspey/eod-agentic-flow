@@ -257,7 +257,11 @@ export class RoofReportExtractorAgent extends Agent {
         extracted.rakeLength = this.createExtractedField(parsedResponse.rakeLength, 0.7, effectiveSource);
         extracted.ridgeHipLength = this.createExtractedField(parsedResponse.ridgeHipLength, 0.7, effectiveSource);
         extracted.valleyLength = this.createExtractedField(parsedResponse.valleyLength, 0.7, effectiveSource);
-        extracted.stories = this.createExtractedField(parsedResponse.stories, 0.7, effectiveSource);
+        extracted.stories = this.createExtractedField(
+          parsedResponse.stories ? Math.round(Number(parsedResponse.stories)) : null, 
+          0.7, 
+          effectiveSource
+        );
         extracted.pitch = this.createExtractedField(parsedResponse.pitch, 0.7, effectiveSource);
         extracted.facets = this.createExtractedField(parsedResponse.facets, 0.6, effectiveSource);
         
@@ -276,7 +280,11 @@ export class RoofReportExtractorAgent extends Agent {
     extracted.rakeLength = this.createExtractedField(visionJson.rake_length || visionJson.rakeLength, 0.8, 'vision');
     extracted.ridgeHipLength = this.createExtractedField(visionJson.ridge_hip_length || visionJson.ridgeHipLength, 0.8, 'vision');
     extracted.valleyLength = this.createExtractedField(visionJson.valley_length || visionJson.valleyLength, 0.8, 'vision');
-    extracted.stories = this.createExtractedField(visionJson.stories, 0.8, 'vision');
+    extracted.stories = this.createExtractedField(
+      visionJson.stories ? Math.round(Number(visionJson.stories)) : null, 
+      0.8, 
+      'vision'
+    );
     extracted.pitch = this.createExtractedField(visionJson.pitch, 0.8, 'vision');
     extracted.facets = this.createExtractedField(visionJson.facets, 0.7, 'vision');
     this.log(LogLevel.INFO, 'roof-fields-parsed-vision', `Roof fields parsed from vision output.`, { parsedFields: Object.keys(extracted).filter(k => (extracted as any)[k]?.value !== null), agentType: this.agentType });
@@ -346,19 +354,30 @@ export class RoofReportExtractorAgent extends Agent {
     this.log(LogLevel.INFO, 'validating-roof-measurements', `Validating extracted roof measurements for job ${context.jobId}`, { agentType: this.agentType });
     const errors: string[] = [];
     const warnings: string[] = [];
-    let confidence = 0.7; // Base confidence
+    
+    // Track successful extractions for confidence calculation
+    let validFieldCount = 0;
+    let totalFieldConfidence = 0;
+    let criticalFieldCount = 0;
+    let validCriticalFieldCount = 0;
 
     const checkNumField = (field: ExtractedField<number | null> | undefined, name: string, critical: boolean = false, minVal: number = 0) => {
+      if (critical) criticalFieldCount++;
+      
       if (!field || field.value === null || field.value === undefined) {
         if (critical) errors.push(`${name} is missing or null.`);
         else warnings.push(`${name} is missing or null.`);
-        confidence *= 0.8;
       } else if (typeof field.value !== 'number' || field.value < minVal) {
         errors.push(`${name} has an invalid value: ${field.value}. Must be a number >= ${minVal}.`);
-        confidence *= 0.7;
-      } else if (field.confidence < 0.5) {
-        warnings.push(`${name} has low confidence: ${field.confidence.toFixed(2)}.`);
-        confidence *= 0.9;
+      } else {
+        // Valid field found
+        validFieldCount++;
+        totalFieldConfidence += field.confidence;
+        if (critical) validCriticalFieldCount++;
+        
+        if (field.confidence < 0.5) {
+          warnings.push(`${name} has low confidence: ${field.confidence.toFixed(2)}.`);
+        }
       }
     };
 
@@ -368,6 +387,8 @@ export class RoofReportExtractorAgent extends Agent {
       critical: boolean = false,
       pattern?: RegExp
     ) => {
+      if (critical) criticalFieldCount++;
+      
       const value = field?.value;
       const isMissing =
         value === null ||
@@ -378,7 +399,6 @@ export class RoofReportExtractorAgent extends Agent {
       if (isMissing) {
         if (critical) errors.push(`${name} is missing or empty.`);
         else warnings.push(`${name} is missing or empty.`);
-        confidence *= 0.8;
         return;
       }
 
@@ -387,10 +407,15 @@ export class RoofReportExtractorAgent extends Agent {
 
       if (pattern && !pattern.test(strVal)) {
         errors.push(`${name} has an invalid format: ${strVal}. Expected pattern: ${pattern.toString()}`);
-        confidence *= 0.7;
-      } else if (field && field.confidence < 0.5) {
-        warnings.push(`${name} has low confidence: ${field.confidence.toFixed(2)}.`);
-        confidence *= 0.9;
+      } else {
+        // Valid field found
+        validFieldCount++;
+        totalFieldConfidence += field?.confidence || 0;
+        if (critical) validCriticalFieldCount++;
+        
+        if (field && field.confidence < 0.5) {
+          warnings.push(`${name} has low confidence: ${field.confidence.toFixed(2)}.`);
+        }
       }
     };
     
@@ -403,16 +428,37 @@ export class RoofReportExtractorAgent extends Agent {
     checkNumField(result.ridgeHipLength, 'Ridge/Hip Length', false);
     checkNumField(result.valleyLength, 'Valley Length', false);
 
+    // Calculate overall confidence based on successful extractions
+    let overallConfidence = 0.3; // Base confidence
+    
+    if (validFieldCount > 0) {
+      // Average confidence of successfully extracted fields
+      const avgFieldConfidence = totalFieldConfidence / validFieldCount;
+      overallConfidence = avgFieldConfidence;
+      
+      // Bonus for having critical fields
+      if (criticalFieldCount > 0) {
+        const criticalFieldRatio = validCriticalFieldCount / criticalFieldCount;
+        overallConfidence = overallConfidence * 0.7 + criticalFieldRatio * 0.3;
+      }
+      
+      // Penalty for having errors (but don't drop below 0.2 if we have valid fields)
+      if (errors.length > 0) {
+        overallConfidence = Math.max(0.2, overallConfidence * 0.7);
+      }
+    }
+    
+    // Sanity check for roof area vs linear measurements
     if (result.totalRoofArea?.value && (result.eaveLength?.value || result.rakeLength?.value)) {
         if ((result.eaveLength?.value || 0) + (result.rakeLength?.value || 0) > (result.totalRoofArea.value * 20)) { // area in squares * 20 ~ linear feet limit (very rough)
             warnings.push('Sum of eave and rake lengths seems unusually high compared to total roof area.');
-            confidence *= 0.85;
+            overallConfidence *= 0.9;
         }
     }
 
     return {
       isValid: errors.length === 0,
-      confidence: Math.max(0.1, Math.min(0.95, confidence)),
+      confidence: Math.max(0.1, Math.min(0.95, overallConfidence)),
       errors,
       warnings,
       suggestions: []

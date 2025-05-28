@@ -1,5 +1,6 @@
 import { OpenAI } from 'openai';
 import { Anthropic } from '@anthropic-ai/sdk';
+import { JobData, LineItem } from '@/types';
 
 /**
  * Core types and interfaces for the agentic workflow system
@@ -276,6 +277,7 @@ export interface OrchestrationOutput {
   discrepancyAnalysis?: AgentResult<DiscrepancyReport>;
   supplementGeneration?: AgentResult<SupplementGenerationOutput>;
   errors: string[];
+  warnings: string[];
   finalSupplementText?: string;
 }
 
@@ -355,13 +357,15 @@ export interface DiscrepancyReport {
  */
 export interface SupplementGeneratorInput {
   jobId: string;
-  estimateExtractionData: EstimateFieldExtractions | null;
-  roofReportData: RoofMeasurements | null;
-  discrepancyReport: DiscrepancyReport | null;
-  // We might want to include the raw line items from the estimate as well for context
-  estimateLineItems?: ExtractedField<EstimateLineItem[] | null>;
-  // User preferences or specific guidelines for supplement generation can be added here
-  // supplementGuidelines?: Record<string, any>;
+  jobData: JobData; // The comprehensive, saved JobData object from @/types
+  actualEstimateLineItems: LineItem[]; // The array of line items from the estimate, from @/types
+  // The following fields are kept commented if OrchestrationAgent no longer passes them directly
+  // or if SupplementGeneratorAgent will now rely solely on jobData and actualEstimateLineItems
+  // for the AIOrchestrator call.
+  // estimateExtractionData?: EstimateFieldExtractions | null; 
+  // roofReportData?: RoofMeasurements | null;
+  // discrepancyReport?: DiscrepancyReport | null;
+  // estimateLineItems?: ExtractedField<EstimateLineItem[] | null>; // This was the old way of passing line items
 }
 
 /**
