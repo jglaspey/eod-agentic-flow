@@ -140,9 +140,11 @@ export class SupervisorAgent extends Agent {
           report.issuesToAddress.push(`WARNING: Field '${fieldName}' in estimate has low confidence (${field.confidence.toFixed(2)}).`);
         }
       };
+      // --- Mandatory Estimate Fields ---
       checkField('Property Address', estimateExtraction.data.propertyAddress, true);
       checkField('Total RCV', estimateExtraction.data.totalRCV, true);
-      checkField('Claim Number', estimateExtraction.data.claimNumber);
+      checkField('Claim Number', estimateExtraction.data.claimNumber, true);
+      checkField('Insurance Carrier', estimateExtraction.data.insuranceCarrier, true);
       if (estimateExtraction.data.lineItems.value && estimateExtraction.data.lineItems.value.length > 0) {
         report.highlights.push('Estimate line items were extracted.');
       } else {
@@ -151,9 +153,33 @@ export class SupervisorAgent extends Agent {
     }
 
     if (orchestrationOutput.wasRoofReportProvided && !roofReportExtraction?.data) {
-      report.issuesToAddress.push('WARNING: Roof report was provided but data extraction seems to have failed or yielded no results.');
+      report.issuesToAddress.push('CRITICAL: Roof report was provided but data extraction failed or yielded no results.');
     }
     
+    if (roofReportExtraction?.data) {
+      const checkRoofField = (fieldName: string, field: ExtractedField<any> | undefined) => {
+        const roofExtractionConfidence = roofReportExtraction?.validation?.confidence ?? 0;
+
+        const fieldMissing = !field || field.value === null || field.value === undefined || (typeof field.value === 'string' && !field.value.toString().trim());
+
+        if (fieldMissing) {
+          const severity = roofExtractionConfidence < 0.5 ? 'WARNING' : 'CRITICAL';
+          report.issuesToAddress.push(`${severity}: Required roof measurement field '${fieldName}' is missing or empty.`);
+        } else if (field.confidence < 0.5) {
+          report.issuesToAddress.push(`WARNING: Roof field '${fieldName}' has low confidence (${field.confidence.toFixed(2)}).`);
+        }
+      };
+
+      // --- Mandatory Roof Measurement Fields ---
+      checkRoofField('Total Roof Area', roofReportExtraction.data.totalRoofArea);
+      checkRoofField('Eave Length', roofReportExtraction.data.eaveLength);
+      checkRoofField('Rake Length', roofReportExtraction.data.rakeLength);
+      checkRoofField('Ridge/Hip Length', roofReportExtraction.data.ridgeHipLength);
+      checkRoofField('Valley Length', roofReportExtraction.data.valleyLength);
+      checkRoofField('Stories', roofReportExtraction.data.stories);
+      checkRoofField('Pitch', roofReportExtraction.data.pitch);
+    }
+
     if (discrepancyAnalysis?.data) {
         if (discrepancyAnalysis.data.overallConsistencyScore < 0.5) {
             report.issuesToAddress.push(`WARNING: Discrepancy analysis resulted in low consistency score (${discrepancyAnalysis.data.overallConsistencyScore.toFixed(2)}).`);
@@ -326,7 +352,16 @@ export class SupervisorAgent extends Agent {
             json_mode: true
         };
       } else if (data) {
-        configs[stepName] = data as AIConfig;
+        // Map database columns to AIConfig interface
+        configs[stepName] = {
+          step_name: data.step_name,
+          prompt: data.prompt,
+          model_provider: data.provider, // Map database 'provider' to 'model_provider'
+          model_name: data.model, // Map database 'model' to 'model_name'
+          temperature: data.temperature,
+          max_tokens: data.max_tokens,
+          json_mode: true
+        }
       } else {
          this.log(LogLevel.WARN, 'supervisor-config-not-found', `AI config not found for ${stepName}, using default.`, { agentType: this.agentType });
          configs[stepName] = { // Same default as error case
