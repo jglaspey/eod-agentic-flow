@@ -73,7 +73,7 @@ export class RoofReportExtractorAgent extends Agent {
   }
 
   async plan(input: RoofReportExtractorInput, context: TaskContext): Promise<AgentExecutionPlan> {
-    this.log(LogLevel.INFO, 'planning-roof-extraction', `Planning roof report extraction for job ${input.jobId}`, { parentTaskId: context.taskId, agentType: this.agentType });
+    this.log(LogLevel.INFO, 'planning-roof-extraction', `Planning roof report extraction for job ${input.jobId}`, { jobId: input.jobId, parentTaskId: context.taskId, agentType: this.agentType });
     const tasks: AgentTask[] = [];
     const strategy = input.strategy || ExtractionStrategy.HYBRID;
 
@@ -128,7 +128,7 @@ export class RoofReportExtractorAgent extends Agent {
   }
 
   async act(input: RoofReportExtractorInput, context: TaskContext): Promise<AgentResult<RoofMeasurements>> {
-    this.log(LogLevel.INFO, 'roof-extraction-start', `Starting roof report extraction for job ${input.jobId}`, { parentTaskId: context.taskId, agentType: this.agentType });
+    this.log(LogLevel.INFO, 'roof-extraction-start', `Starting roof report extraction for job ${input.jobId}`, { jobId: input.jobId, parentTaskId: context.taskId, agentType: this.agentType });
     const { pdfBuffer, jobId, strategy = ExtractionStrategy.HYBRID } = input;
 
     let textContent: string | null = null;
@@ -141,18 +141,18 @@ export class RoofReportExtractorAgent extends Agent {
     // Text Extraction (if applicable)
     if (strategy === ExtractionStrategy.TEXT_ONLY || strategy === ExtractionStrategy.HYBRID || strategy === ExtractionStrategy.FALLBACK) {
       try {
-        this.log(LogLevel.DEBUG, 'roof-text-extraction', `Attempting text extraction from roof report for job ${jobId}`, { agentType: this.agentType });
+        this.log(LogLevel.DEBUG, 'roof-text-extraction', `Attempting text extraction from roof report for job ${jobId}`, { jobId, agentType: this.agentType });
         // Assuming PDFProcessor.extractText is a static method returning a string
         textContent = await PDFProcessor.extractText(pdfBuffer);
         if (textContent && textContent.length > 100) { // Basic check for meaningful text
-          this.log(LogLevel.INFO, 'roof-text-extracted', `Text extracted successfully. Length: ${textContent.length}`, { agentType: this.agentType });
+          this.log(LogLevel.INFO, 'roof-text-extracted', `Text extracted successfully. Length: ${textContent.length}`, { jobId, agentType: this.agentType });
           textBasedMeasurements = await this.extractFieldsFromText(textContent, jobId);
         } else {
-          this.log(LogLevel.WARN, 'roof-text-extraction-poor', 'Extracted text from roof report is minimal or empty.', { agentType: this.agentType });
+          this.log(LogLevel.WARN, 'roof-text-extraction-poor', 'Extracted text from roof report is minimal or empty.', { jobId, agentType: this.agentType });
           if (strategy === ExtractionStrategy.TEXT_ONLY) errors.push('Text extraction yielded minimal content, and strategy is TEXT_ONLY.');
         }
       } catch (error: any) {
-        this.log(LogLevel.ERROR, 'roof-text-extraction-failed', `Text extraction from roof report failed: ${error.message}`, { error: error.toString(), agentType: this.agentType });
+        this.log(LogLevel.ERROR, 'roof-text-extraction-failed', `Text extraction from roof report failed: ${error.message}`, { jobId, error: error.toString(), agentType: this.agentType });
         errors.push(`Text extraction failed: ${error.message}`);
         if (strategy === ExtractionStrategy.TEXT_ONLY) throw new Error('Critical text extraction failure in TEXT_ONLY mode.');
       }
@@ -165,16 +165,16 @@ export class RoofReportExtractorAgent extends Agent {
 
     if (needsVision && (this.openai || this.anthropic)) {
       try {
-        this.log(LogLevel.DEBUG, 'roof-vision-conversion-to-images', `Converting PDF to images for vision analysis for job ${jobId}`, { agentType: this.agentType });
+        this.log(LogLevel.DEBUG, 'roof-vision-conversion-to-images', `Converting PDF to images for vision analysis for job ${jobId}`, { jobId, agentType: this.agentType });
         const imageOptions: PDFToImagesOptions = { dpi: 200, format: 'jpg', quality: 80 };
         const imageDataUrls = await PDFToImagesTool.convertPDFToDataURLs(pdfBuffer, imageOptions);
         
         if (!imageDataUrls || imageDataUrls.length === 0) {
-            this.log(LogLevel.WARN, 'pdf-to-images-failed-roof', 'PDF to images conversion yielded no images.', { agentType: this.agentType });
+            this.log(LogLevel.WARN, 'pdf-to-images-failed-roof', 'PDF to images conversion yielded no images.', { jobId, agentType: this.agentType });
             errors.push('PDF to images conversion failed for vision analysis.');
             if (strategy === ExtractionStrategy.VISION_ONLY) throw new Error('Critical PDF to images failure in VISION_ONLY mode.');
         } else {
-            this.log(LogLevel.DEBUG, 'roof-vision-extraction', `Attempting vision extraction from ${imageDataUrls.length} images for job ${jobId}`, { agentType: this.agentType });
+            this.log(LogLevel.DEBUG, 'roof-vision-extraction', `Attempting vision extraction from ${imageDataUrls.length} images for job ${jobId}`, { jobId, agentType: this.agentType });
             
             // Determine preferred provider and model for Vision
             const preferredProvider = this.anthropic ? 'anthropic' : 'openai';
@@ -191,36 +191,72 @@ export class RoofReportExtractorAgent extends Agent {
             
             if (visionAnalysisResult && visionAnalysisResult.extractedText) {
                 try {
-                    visionJsonOutput = JSON.parse(visionAnalysisResult.extractedText);
-                    this.log(LogLevel.INFO, 'roof-vision-extracted-parsed', `Vision analysis of roof report completed and text parsed as JSON.`, { agentType: this.agentType });
+                    // Enhanced JSON cleaning for vision results
+                    let cleanedVisionText = visionAnalysisResult.extractedText.trim();
+                    
+                    // Remove markdown code blocks
+                    if (cleanedVisionText.includes('```')) {
+                        cleanedVisionText = cleanedVisionText.replace(/```json\s*/g, '').replace(/\s*```/g, '');
+                        cleanedVisionText = cleanedVisionText.replace(/```\s*/g, '').replace(/\s*```/g, '');
+                    }
+                    
+                    // Find JSON object boundaries
+                    const jsonStart = cleanedVisionText.indexOf('{');
+                    const jsonEnd = cleanedVisionText.lastIndexOf('}');
+                    if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+                        cleanedVisionText = cleanedVisionText.substring(jsonStart, jsonEnd + 1);
+                    }
+                    
+                    // Remove any remaining backticks and clean
+                    cleanedVisionText = cleanedVisionText.replace(/`/g, '').trim();
+                    
+                    visionJsonOutput = JSON.parse(cleanedVisionText);
+                    this.log(LogLevel.INFO, 'roof-vision-extracted-parsed', `Vision analysis of roof report completed and text parsed as JSON.`, { jobId, agentType: this.agentType });
                     visionBasedMeasurements = this.parseVisionOutput(visionJsonOutput);
                 } catch (parseError: any) {
-                    this.log(LogLevel.WARN, 'roof-vision-json-parse-failed', `Failed to parse vision extractedText as JSON: ${parseError.message}. Proceeding with vision text for text-based field extraction as fallback.`, { rawText: visionAnalysisResult.extractedText.substring(0, 200), agentType: this.agentType });
+                    this.log(LogLevel.WARN, 'roof-vision-json-parse-failed', `Failed to parse vision extractedText as JSON: ${parseError.message}. Proceeding with vision text for text-based field extraction as fallback.`, { jobId, rawText: visionAnalysisResult.extractedText.substring(0, 200), agentType: this.agentType });
                     visionBasedMeasurements = await this.extractFieldsFromText(visionAnalysisResult.extractedText, jobId, 'hybrid'); 
                 }
             } else if (visionAnalysisResult && visionAnalysisResult.jsonOutput) { 
-                this.log(LogLevel.INFO, 'roof-vision-extracted-direct-json', `Vision analysis of roof report completed with direct JSON output.`, { agentType: this.agentType });
+                this.log(LogLevel.INFO, 'roof-vision-extracted-direct-json', `Vision analysis of roof report completed with direct JSON output.`, { jobId, agentType: this.agentType });
                 visionBasedMeasurements = this.parseVisionOutput(visionAnalysisResult.jsonOutput);
             } else {
-              this.log(LogLevel.WARN, 'roof-vision-extraction-poor', 'Vision analysis of roof report did not yield structured JSON output or text.', { agentType: this.agentType });
+              this.log(LogLevel.WARN, 'roof-vision-extraction-poor', 'Vision analysis of roof report did not yield structured JSON output or text.', { jobId, agentType: this.agentType });
               if (strategy === ExtractionStrategy.VISION_ONLY) errors.push('Vision extraction failed to produce structured data, and strategy is VISION_ONLY.');
             }
         }
       } catch (error: any) {
-        this.log(LogLevel.ERROR, 'roof-vision-extraction-failed', `Vision extraction from roof report failed: ${error.message}`, { error: error.toString(), agentType: this.agentType });
+        this.log(LogLevel.ERROR, 'roof-vision-extraction-failed', `Vision extraction from roof report failed: ${error.message}`, { jobId, error: error.toString(), agentType: this.agentType });
         errors.push(`Vision extraction failed: ${error.message}`);
         if (strategy === ExtractionStrategy.VISION_ONLY) throw new Error('Critical vision extraction failure in VISION_ONLY mode.');
       }
     }
 
+    this.log(LogLevel.DEBUG, 'roof-extraction-pre-combine', `Combining extractions for job ${jobId}`, { 
+      jobId,
+      textMeasurements: Object.keys(textBasedMeasurements).filter(k => (textBasedMeasurements as any)[k]?.value !== null),
+      visionMeasurements: Object.keys(visionBasedMeasurements).filter(k => (visionBasedMeasurements as any)[k]?.value !== null),
+      strategy,
+      agentType: this.agentType 
+    });
+
     const combinedMeasurements = this.combineExtractions(textBasedMeasurements, visionBasedMeasurements, strategy);
+    
+    this.log(LogLevel.DEBUG, 'roof-extraction-post-combine', `Combined measurements for job ${jobId}`, { 
+      jobId,
+      combinedFields: Object.keys(combinedMeasurements).filter(k => (combinedMeasurements as any)[k]?.value !== null),
+      totalRoofArea: combinedMeasurements.totalRoofArea?.value,
+      eaveLength: combinedMeasurements.eaveLength?.value,
+      agentType: this.agentType 
+    });
+
     const validation = await this.validate(combinedMeasurements, context);
     
     if (errors.length > 0) validation.errors.push(...errors);
     if (!validation.isValid && validation.confidence < 0.5) {
-        this.log(LogLevel.ERROR, 'roof-extraction-failed-validation', 'Roof report extraction failed validation with low confidence.', { validation, agentType: this.agentType });
+        this.log(LogLevel.ERROR, 'roof-extraction-failed-validation', 'Roof report extraction failed validation with low confidence.', { jobId, validation, agentType: this.agentType });
     } else if (!validation.isValid) {
-        this.log(LogLevel.WARN, 'roof-extraction-validation-issues', 'Roof report extraction completed with validation issues.', { validation, agentType: this.agentType });
+        this.log(LogLevel.WARN, 'roof-extraction-validation-issues', 'Roof report extraction completed with validation issues.', { jobId, validation, agentType: this.agentType });
     }
 
     return {
@@ -245,12 +281,32 @@ export class RoofReportExtractorAgent extends Agent {
     try {
         const aiConfig = (await this.getAIConfigs([configKey]))[configKey];
         if (!aiConfig || !aiConfig.prompt) {
-            this.log(LogLevel.WARN, 'no-text-config-roof', `AI config for ${configKey} not found or no prompt. Skipping AI extraction from text (source: ${effectiveSource}).`, { agentType: this.agentType });
+            this.log(LogLevel.WARN, 'no-text-config-roof', `AI config for ${configKey} not found or no prompt. Skipping AI extraction from text (source: ${effectiveSource}).`, { jobId, agentType: this.agentType });
             return extracted;
         }
         const prompt = aiConfig.prompt.replace('{{TEXT_CONTENT}}', text);
         const response = await this.callAI(aiConfig, prompt, jobId, AgentType.ROOF_REPORT_EXTRACTOR);
-        const parsedResponse = JSON.parse(response); 
+        
+        // Enhanced JSON cleaning for roof text extraction
+        let cleanedResponse = response.trim();
+        
+        // Remove markdown code blocks
+        if (cleanedResponse.includes('```')) {
+            cleanedResponse = cleanedResponse.replace(/```json\s*/g, '').replace(/\s*```/g, '');
+            cleanedResponse = cleanedResponse.replace(/```\s*/g, '').replace(/\s*```/g, '');
+        }
+        
+        // Find JSON object boundaries
+        const jsonStart = cleanedResponse.indexOf('{');
+        const jsonEnd = cleanedResponse.lastIndexOf('}');
+        if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+            cleanedResponse = cleanedResponse.substring(jsonStart, jsonEnd + 1);
+        }
+        
+        // Remove any remaining backticks and clean
+        cleanedResponse = cleanedResponse.replace(/`/g, '').trim();
+        
+        const parsedResponse = JSON.parse(cleanedResponse); 
 
         extracted.totalRoofArea = this.createExtractedField(parsedResponse.totalRoofArea, 0.7, effectiveSource);
         extracted.eaveLength = this.createExtractedField(parsedResponse.eaveLength, 0.7, effectiveSource);
@@ -265,9 +321,9 @@ export class RoofReportExtractorAgent extends Agent {
         extracted.pitch = this.createExtractedField(parsedResponse.pitch, 0.7, effectiveSource);
         extracted.facets = this.createExtractedField(parsedResponse.facets, 0.6, effectiveSource);
         
-        this.log(LogLevel.INFO, 'roof-fields-extracted-text', `Roof fields extracted from text (source: ${effectiveSource}).`, { extractedFields: Object.keys(parsedResponse), agentType: this.agentType });
+        this.log(LogLevel.INFO, 'roof-fields-extracted-text', `Roof fields extracted from text (source: ${effectiveSource}).`, { jobId, extractedFields: Object.keys(parsedResponse), agentType: this.agentType });
     } catch (error: any) {
-        this.log(LogLevel.ERROR, 'extract-roof-fields-text-error', `Error extracting roof fields from text (source: ${effectiveSource}): ${error.message}`, { error: error.toString(), agentType: this.agentType });
+        this.log(LogLevel.ERROR, 'extract-roof-fields-text-error', `Error extracting roof fields from text (source: ${effectiveSource}): ${error.message}`, { jobId, error: error.toString(), agentType: this.agentType });
     }
     return extracted;
   }
@@ -351,7 +407,7 @@ export class RoofReportExtractorAgent extends Agent {
   }
 
   async validate(result: RoofMeasurements, context: TaskContext): Promise<ValidationResult> {
-    this.log(LogLevel.INFO, 'validating-roof-measurements', `Validating extracted roof measurements for job ${context.jobId}`, { agentType: this.agentType });
+    this.log(LogLevel.INFO, 'validating-roof-measurements', `Validating extracted roof measurements for job ${context.jobId}`, { jobId: context.jobId, agentType: this.agentType });
     const errors: string[] = [];
     const warnings: string[] = [];
     
@@ -495,7 +551,15 @@ export class RoofReportExtractorAgent extends Agent {
           json_mode: true,
         };
       } else {
-        configs[stepName] = data as AIConfig;
+        // Map database columns to AIConfig interface
+        configs[stepName] = {
+          step_name: data.step_name,
+          prompt: data.prompt,
+          model_provider: data.provider, // Map database 'provider' to 'model_provider'
+          model_name: data.model, // Map database 'model' to 'model_name'
+          temperature: data.temperature,
+          max_tokens: data.max_tokens
+        }
       }
     }
     return configs;

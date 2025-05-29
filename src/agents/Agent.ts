@@ -241,11 +241,29 @@ export abstract class Agent {
     this.logs.push(logEntry)
     
     // Also send to the existing log streamer for real-time UI updates
-    logStreamer.logStep(
-      'current-job', // This should be passed from context
-      `${this.agentType}-${event}`,
-      message
-    )
+    // Extract jobId from various possible sources in data
+    let jobId = 'current-job';
+    if (data?.jobId) {
+      jobId = data.jobId;
+    } else if (data?.context?.jobId) {
+      jobId = data.context.jobId;
+    } else if (data?.parentTaskId && typeof data.parentTaskId === 'string' && data.parentTaskId.length > 10) {
+      jobId = data.parentTaskId;
+    }
+    
+    // Convert LogLevel to the format expected by logStreamer
+    const logLevel = level === LogLevel.DEBUG ? 'debug' : 
+                    level === LogLevel.INFO ? 'info' : 
+                    level === LogLevel.WARN ? 'info' : 
+                    level === LogLevel.ERROR ? 'error' : 
+                    level === LogLevel.SUCCESS ? 'success' : 'info';
+    
+    logStreamer.addLog(jobId, {
+      level: logLevel as any,
+      step: `${this.agentType}-${event}`,
+      message,
+      data
+    });
   }
 
   /**

@@ -129,8 +129,50 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
     );
   }
 
+  // Check for low confidence scores or any warning indicators
+  const hasLowConfidenceData = (
+    (jobData?.estimate_confidence && jobData.estimate_confidence < 0.7) ||
+    (jobData?.roof_report_confidence && jobData.roof_report_confidence < 0.7) ||
+    supplements.some(item => (item.confidence_score || 0) < 0.7)
+  )
+
+  const handleRerunJob = () => {
+    // Navigate back to upload page for reprocessing
+    router.push('/')
+  }
+
   return (
     <div className="space-y-6">
+      {/* Low Confidence Warning Banner */}
+      {hasLowConfidenceData && (
+        <div className="bg-amber-50 border-l-4 border-amber-400 p-6 rounded-md shadow-md">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-amber-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 3.001-1.742 3.001H4.42c-1.53 0-2.493-1.667-1.743-3.001l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <h3 className="text-lg font-medium text-amber-800">Low Confidence Results Detected</h3>
+              <div className="mt-2 text-sm text-amber-700">
+                <p>Some extracted data has lower confidence scores, which may affect accuracy. All available information is displayed below for your review.</p>
+                <div className="mt-3 flex flex-col sm:flex-row gap-3">
+                  <button
+                    onClick={handleRerunJob}
+                    className="bg-amber-600 hover:bg-amber-700 text-white font-medium py-2 px-4 rounded-md transition-colors"
+                  >
+                    Upload Files Again
+                  </button>
+                  <span className="text-sm text-amber-600 self-center">
+                    Reprocessing with improved AI settings may improve accuracy
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Status Header */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex items-center justify-between">
@@ -305,6 +347,14 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
             <p className="mt-1 text-sm text-gray-500">
               The analysis did not identify any missing items or discrepancies requiring supplements.
             </p>
+            {hasLowConfidenceData && (
+              <div className="mt-4 p-3 bg-amber-50 rounded-md border border-amber-200">
+                <p className="text-sm text-amber-700">
+                  <strong>Note:</strong> This result may be due to low confidence in data extraction. 
+                  Consider rerunning the analysis for more accurate results.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -10,7 +10,7 @@ interface LogTerminalProps {
 interface LogEvent {
   id: string
   timestamp: string
-  level: 'info' | 'success' | 'error' | 'debug'
+  level: 'info' | 'success' | 'error' | 'debug' | 'ai-prompt' | 'ai-response'
   step: string
   message: string
   data?: any;
@@ -29,6 +29,7 @@ export default function LogTerminal({ jobId, onComplete, readonly }: LogTerminal
     
     const connectEventSource = () => {
       try {
+        console.log(`[LogTerminal] Connecting to SSE for job ${jobId}`)
         source = new EventSource(`/api/jobs/${jobId}/logs`)
         setConnectionError(false)
         
@@ -118,6 +119,8 @@ export default function LogTerminal({ jobId, onComplete, readonly }: LogTerminal
     success: 'text-green-300',
     error: 'text-red-300',
     debug: 'text-yellow-300',
+    'ai-prompt': 'text-blue-300',
+    'ai-response': 'text-cyan-300',
   }
 
   return (

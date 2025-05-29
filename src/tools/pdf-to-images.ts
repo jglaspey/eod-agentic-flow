@@ -197,7 +197,8 @@ doc.close()
    */
   private static async executePython(args: string[]): Promise<string> {
     return new Promise((resolve, reject) => {
-      const python = spawn('python3', args)
+      // Use explicit path to conda python that has fitz
+      const python = spawn('/Users/jasonglaspey/miniforge3/bin/python3', args)
       
       let stdout = ''
       let stderr = ''

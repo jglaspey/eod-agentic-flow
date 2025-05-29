@@ -18,26 +18,43 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const formData = await request.formData()
-    const estimateFile = formData.get('estimate') as File
-    const roofReportFile = formData.get('roofReport') as File | null
+    // Check if this is a rerun request
+    const contentType = request.headers.get('content-type')
+    let isRerun = false
+    let jobId: string
+    let estimateFile: File | null = null
+    let roofReportFile: File | null = null
 
-    if (!estimateFile) {
+    if (contentType?.includes('application/json')) {
+      // This is a rerun request - for now, return error as we don't store files
       return NextResponse.json(
-        { error: 'Estimate file is required' },
+        { error: 'Rerun functionality requires re-uploading files. Please upload the files again for reprocessing.' },
         { status: 400 }
       )
+    } else {
+      // This is a new file upload
+      const formData = await request.formData()
+      estimateFile = formData.get('estimate') as File
+      roofReportFile = formData.get('roofReport') as File | null
+
+      if (!estimateFile) {
+        return NextResponse.json(
+          { error: 'Estimate file is required' },
+          { status: 400 }
+        )
+      }
+
+      // Validate file types
+      if (estimateFile.type !== 'application/pdf' || (roofReportFile && roofReportFile.type !== 'application/pdf')) {
+        return NextResponse.json(
+          { error: 'Only PDF files are allowed' },
+          { status: 400 }
+        )
+      }
+
+      jobId = uuidv4()
     }
 
-    // Validate file types
-    if (estimateFile.type !== 'application/pdf' || (roofReportFile && roofReportFile.type !== 'application/pdf')) {
-      return NextResponse.json(
-        { error: 'Only PDF files are allowed' },
-        { status: 400 }
-      )
-    }
-
-    const jobId = uuidv4()
     const startTime = Date.now()
 
     const supabase = getSupabaseClient()
@@ -58,7 +75,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Process files with the new OrchestrationAgent
+    // Add immediate log to verify job creation
+    logStreamer.logStep(jobId, 'job-creation-confirmed', `Job ${jobId} created successfully, starting processing`);
+    console.log(`[API] Job ${jobId} created, about to start processing`);
+    
+    // Test LogStreamer immediately
+    const testLog = logStreamer.getLogs(jobId);
+    console.log(`[API] Immediate test: Job ${jobId} has ${testLog.length} logs after creation`);
+
+    // Start processing immediately (synchronously)
     processFilesWithNewAgent(jobId, estimateFile, roofReportFile, startTime)
 
     return NextResponse.json({ jobId })
@@ -77,8 +102,20 @@ async function processFilesWithNewAgent(
   roofReportFile: File | null,
   startTime: number
 ) {
-  console.log(`[${jobId}] processFilesWithNewAgent: Started.`);
-  logStreamer.logStep(jobId, 'job-started', 'Job processing started with new agent system');
+  try {
+    console.log(`[${jobId}] processFilesWithNewAgent: Started.`);
+    logStreamer.logStep(jobId, 'job-started', 'Job processing started with new agent system');
+  
+  // Add debug logging to see if logs are being created
+  console.log(`[${jobId}] LogStreamer stats: `, {
+    totalJobsTracked: logStreamer.getLogs(jobId).length,
+    logStreamerInstance: !!logStreamer
+  });
+  
+  // Verify logs are being stored correctly
+  logStreamer.logStep(jobId, 'debug-log-test', `Testing log storage for job ${jobId}`);
+  const testLogs = logStreamer.getLogs(jobId);
+  console.log(`[${jobId}] Test logs count after adding test log: ${testLogs.length}`);
   const supabase = getSupabaseClient();
   let finalJobStatus: JobStatus = JobStatus.IN_PROGRESS;
   let detailedErrorMessage: string | null = null;
@@ -90,6 +127,7 @@ async function processFilesWithNewAgent(
     const estimatePdfBuffer = Buffer.from(await estimateFile.arrayBuffer());
     const roofReportPdfBuffer = roofReportFile ? Buffer.from(await roofReportFile.arrayBuffer()) : undefined;
 
+    logStreamer.logStep(jobId, 'agent_initialization', 'Initializing OrchestrationAgent');
     const orchestrationAgent = new OrchestrationAgent();
     const agentConfig = orchestrationAgent.getConfig();
 
@@ -102,10 +140,18 @@ async function processFilesWithNewAgent(
       retryCount: 0
     };
 
-    const orchestrationResult = await orchestrationAgent.execute(
-      { estimatePdfBuffer, roofReportPdfBuffer, jobId },
-      initialTaskContext
-    );
+    logStreamer.logStep(jobId, 'orchestration_execute_start', 'Starting OrchestrationAgent.execute()');
+    let orchestrationResult;
+    try {
+      orchestrationResult = await orchestrationAgent.execute(
+        { estimatePdfBuffer, roofReportPdfBuffer, jobId },
+        initialTaskContext
+      );
+      logStreamer.logStep(jobId, 'orchestration_execute_complete', 'OrchestrationAgent.execute() completed successfully');
+    } catch (orchestrationError: any) {
+      logStreamer.logError(jobId, 'orchestration_execute_failed', `OrchestrationAgent.execute() failed: ${orchestrationError.message}`);
+      throw orchestrationError; // Re-throw to be caught by outer try-catch
+    }
     orchestrationOutput = orchestrationResult.data;
     
     if (orchestrationOutput) {
@@ -317,5 +363,24 @@ async function processFilesWithNewAgent(
     
     logStreamer.logStep(jobId, 'job-completed', `Job ${finalJobStatus}. Processing time: ${processingTime}ms.`)
     console.log(`[${jobId}] processFilesWithNewAgent: Finished. Status: ${finalJobStatus}. Time: ${processingTime}ms. Errors: ${detailedErrorMessage || 'None'}`);
+  }
+  } catch (outerError: any) {
+    console.error(`[${jobId}] FATAL ERROR in processFilesWithNewAgent wrapper:`, outerError);
+    logStreamer.logError(jobId, 'fatal-wrapper-error', `Fatal error in processing wrapper: ${outerError.message}`);
+    
+    // Ensure job status is updated even if everything fails
+    try {
+      const supabase = getSupabaseClient();
+      await supabase
+        .from('jobs')
+        .update({
+          status: 'failed',
+          error_message: `Fatal processing error: ${outerError.message}`,
+          processing_time_ms: Date.now() - startTime
+        })
+        .eq('id', jobId);
+    } catch (dbError) {
+      console.error(`[${jobId}] Failed to update job status after fatal error:`, dbError);
+    }
   }
 }

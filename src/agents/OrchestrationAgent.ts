@@ -169,15 +169,32 @@ export class OrchestrationAgent extends Agent {
       }
 
       // 2. Extract from Roof Report PDF (if provided)
+      this.log(LogLevel.DEBUG, 'roof-buffer-check', `Checking roof report buffer for job ${input.jobId}`, { 
+        hasRoofBuffer: !!input.roofReportPdfBuffer, 
+        bufferSize: input.roofReportPdfBuffer?.length || 0,
+        agentType: this.agentType 
+      });
+      
       if (input.roofReportPdfBuffer) { 
         const roofReportAgent = new RoofReportExtractorAgent();
         const roofTaskContext = { ...context, taskId: uuidv4(), jobId: input.jobId, priority: 1 };
         this.log(LogLevel.DEBUG, 'orchestration-run-roof-agent', `Running RoofReportExtractorAgent for job ${input.jobId}`, { context: roofTaskContext });
+        logStreamer.logStep(input.jobId, 'roof_extraction_start', 'Starting roof report extraction', { 
+          bufferSize: input.roofReportPdfBuffer.length,
+          strategy: input.strategy || ExtractionStrategy.HYBRID
+        });
         try {
             output.roofReportExtraction = await roofReportAgent.execute(
                 { pdfBuffer: input.roofReportPdfBuffer, strategy: input.strategy || ExtractionStrategy.HYBRID, jobId: input.jobId }, 
                 roofTaskContext
             );
+            logStreamer.logStep(input.jobId, 'roof_extraction_complete', 'Roof report extraction completed', {
+              confidence: output.roofReportExtraction.validation.confidence,
+              hasData: !!output.roofReportExtraction.data,
+              roofArea: output.roofReportExtraction.data?.totalRoofArea?.value,
+              eaveLength: output.roofReportExtraction.data?.eaveLength?.value
+            });
+            
             if (output.roofReportExtraction.validation.confidence < roofReportAgent.getConfig().confidenceThreshold) {
                 this.log(LogLevel.WARN, 'low-roof-report-confidence', `Roof report extraction confidence (${output.roofReportExtraction.validation.confidence.toFixed(3)}) below threshold (${roofReportAgent.getConfig().confidenceThreshold}).`, {jobId: input.jobId, agentType: this.agentType});
                 output.warnings.push(`Low confidence in roof report extraction: ${output.roofReportExtraction.validation.confidence.toFixed(3)}`);
@@ -188,6 +205,7 @@ export class OrchestrationAgent extends Agent {
         }
       } else {
         this.log(LogLevel.INFO, 'skip-roof-report-extraction', 'No roof report PDF provided, skipping extraction.', { jobId: input.jobId, agentType: this.agentType });
+        logStreamer.logStep(input.jobId, 'roof_extraction_skipped', 'No roof report PDF provided, skipping extraction');
       }
 
       // --- BEGIN NEW JobData Construction & Saving ---

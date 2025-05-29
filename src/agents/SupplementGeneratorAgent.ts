@@ -23,28 +23,34 @@ import { getSupabaseClient } from '@/lib/supabase';
 import { v4 as uuidv4 } from 'uuid';
 import { OpenAI } from 'openai';
 import { Anthropic } from '@anthropic-ai/sdk';
+import { AIOrchestrator } from '@/lib/ai-orchestrator'; // Import AIOrchestrator
+import { SupplementItem as DBSupplementItem, LineItem as DBLineItem, JobData as DBJobData } from '@/types'; // Import DB types
 
 interface SupplementGenerationInput {
-  analysisOutput: AgentResult<DiscrepancyAnalysisOutput>;
-  // Potentially include customer preferences, specific formatting rules, etc.
+  jobId: string;
+  // These are the new fields based on the updated src/agents/types.ts
+  jobData: import('@/types').JobData; // Using import('@/types').JobData to be explicit
+  actualEstimateLineItems: DBLineItem[];
 }
 
 // Define the output structure for this agent
 // For now, let's assume it generates a structured list of supplement text lines or objects
+// This interface is ALREADY defined in src/agents/types.ts, so this local one might be redundant
+// or should match exactly. For the edit, we assume it matches.
+/*
 export interface SupplementGenerationOutput {
   generatedSupplements: GeneratedSupplementItem[];
   summary?: string; // Optional summary of generated items
   totalRecommendedValue?: number; // If pricing is integrated
 }
+*/
 
 /**
  * SupplementGeneratorAgent generates supplement items based on estimate data,
- * roof reports, and discrepancy analysis.
+ * roof reports, and discrepancy analysis using AIOrchestrator.
  */
 export class SupplementGeneratorAgent extends Agent {
   private supabase = getSupabaseClient();
-  private openai: OpenAI | null = null;
-  private anthropic: Anthropic | null = null;
 
   constructor() {
     const config: AgentConfig = {
@@ -57,13 +63,6 @@ export class SupplementGeneratorAgent extends Agent {
       tools: []
     };
     super(config);
-
-    if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_api_key_here') {
-      this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    }
-    if (process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY !== 'your_anthropic_api_key_here') {
-      this.anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-    }
   }
 
   get agentType(): AgentType {
@@ -93,288 +92,185 @@ export class SupplementGeneratorAgent extends Agent {
   }
 
   async act(input: SupplementGeneratorInput, context: TaskContext): Promise<AgentResult<SupplementGenerationOutput>> {
-    this.log(LogLevel.INFO, 'supplement-generation-start', `Starting supplement generation for job ${input.jobId}`, { parentTaskId: context.taskId, agentType: this.agentType });
+    this.log(LogLevel.INFO, 'supplement-generation-start-new', `Starting supplement generation for job ${input.jobId} using AIOrchestrator.`, { parentTaskId: context.taskId, agentType: this.agentType });
     
-    const { estimateExtractionData, roofReportData, discrepancyReport, jobId } = input;
-    let generatedSupplements: GeneratedSupplementItem[] = [];
-    const supplementRationales: Record<string, string> = {};
-    let issuesOrSuggestions: string[] = [];
+    const { jobId, jobData, actualEstimateLineItems } = input; // New input destructuring
 
-    if (!this.openai && !this.anthropic) {
-        this.log(LogLevel.ERROR, 'no-ai-provider-supplements', 'No AI provider configured for supplement generation. Cannot proceed.', { jobId, agentType: this.agentType });
-        throw new Error('SupplementGeneratorAgent requires at least one AI provider (OpenAI or Anthropic) to be configured.');
+    let generatedSupplementsForOutput: GeneratedSupplementItem[] = [];
+    const issuesOrSuggestions: string[] = [];
+    let overallConfidence = 0.5; // Default confidence
+    const supplementRationales: Record<string, string> = {}; // For SupplementGenerationOutput
+
+    if (!jobData || !actualEstimateLineItems) {
+        this.log(LogLevel.ERROR, 'missing-input-data-supplements', 'Missing jobData or actualEstimateLineItems for supplement generation.', { jobId, agentType: this.agentType });
+        // Return a valid AgentResult with an error status
+        const validationError: ValidationResult = {
+            isValid: false,
+            confidence: 0.0,
+            errors: ['Missing jobData or actualEstimateLineItems for supplement generation.'],
+            warnings: [],
+            suggestions: []
+        };
+        return {
+            data: { 
+                jobId,
+                generatedSupplements: [], 
+                supplementRationales: {}, 
+                issuesOrSuggestions: ['Critical: Missing input data.'], 
+                overallConfidence: 0.0 
+            } as SupplementGenerationOutput,
+            validation: validationError,
+            processingTimeMs: 0, // Will be set by base
+            model: 'ai_orchestrator'
+        };
     }
 
     try {
-        const aiConfigKey = 'generate_supplement_items';
-        const config = (await this.getAIConfigs([aiConfigKey]))[aiConfigKey];
-        
-        const prompt = this.constructSupplementPrompt(input, config.prompt);
-        const aiResponse = await this.callAI(config, prompt, jobId);
-        
-        const parsedResponse = this.parseAISupplementResponse(aiResponse, jobId);
-        generatedSupplements = parsedResponse.supplements;
-        Object.assign(supplementRationales, parsedResponse.rationales);
-        issuesOrSuggestions.push(...parsedResponse.issues);
+      const aiOrchestrator = new AIOrchestrator(jobId);
+      
+      this.log(LogLevel.DEBUG, 'calling-ai-orchestrator-supplements', `Calling AIOrchestrator.analyzeDiscrepanciesAndSuggestSupplements for job ${jobId}`, {agentType: this.agentType});
 
-    } catch (error) {
-        this.log(LogLevel.ERROR, 'supplement-generation-error', `Core supplement generation failed: ${error}`, { jobId, error, agentType: this.agentType });
-        issuesOrSuggestions.push(`Critical error during AI supplement generation: ${error instanceof Error ? error.message : String(error)}`);
-        // Return empty but valid output to avoid crashing the whole flow if preferred
+      const rawSupplementItems: DBSupplementItem[] = await aiOrchestrator.analyzeDiscrepanciesAndSuggestSupplements(
+        jobData,
+        actualEstimateLineItems
+      );
+
+      this.log(LogLevel.INFO, 'ai-orchestrator-supplements-returned', `AIOrchestrator returned ${rawSupplementItems.length} supplement items for job ${jobId}`, { count: rawSupplementItems.length, agentType: this.agentType });
+
+      if (rawSupplementItems && rawSupplementItems.length > 0) {
+        // Save to Supabase
+        const { error: supplementSaveError } = await this.supabase
+          .from('supplement_items')
+          .insert(rawSupplementItems.map(item => ({ ...item, job_id: jobId }))); // Ensure job_id is set if not already by AIOrchestrator
+
+        if (supplementSaveError) {
+          this.log(LogLevel.ERROR, 'supplement-save-failed', `Failed to save supplement items: ${supplementSaveError.message}`, { jobId, error: supplementSaveError, agentType: this.agentType });
+          issuesOrSuggestions.push(`Failed to save supplement items: ${supplementSaveError.message}`);
+          // Potentially lower confidence or mark as partial failure
+        } else {
+          this.log(LogLevel.SUCCESS, 'supplement-save-success', `${rawSupplementItems.length} supplement items saved to DB.`, { jobId, agentType: this.agentType });
+        }
+
+        // Transform DBSupplementItem[] to GeneratedSupplementItem[] for agent output
+        generatedSupplementsForOutput = rawSupplementItems.map((dbItem): GeneratedSupplementItem => {
+          const generatedId = dbItem.id || uuidv4();
+          supplementRationales[generatedId] = dbItem.reason; // Populate rationales
+          return {
+            id: generatedId, 
+            xactimateCode: dbItem.xactimate_code || 'TBD',
+            description: dbItem.line_item,
+            quantity: dbItem.quantity,
+            unit: dbItem.unit,
+            justification: dbItem.reason,
+            confidence: dbItem.confidence_score,
+            sourceRecommendationId: `ai_orchestrator_${generatedId}`,
+          };
+        });
+        
+        if (generatedSupplementsForOutput.length > 0) {
+            overallConfidence = generatedSupplementsForOutput.reduce((sum, item) => sum + item.confidence, 0) / generatedSupplementsForOutput.length;
+        } else {
+            overallConfidence = 0.3; // Low if AIOrchestrator returned items but transformation failed or all filtered out
+        }
+      } else {
+        this.log(LogLevel.INFO, 'no-supplements-from-ai-orchestrator', `AIOrchestrator returned no supplement items for job ${jobId}.`, {agentType: this.agentType});
+        overallConfidence = 0.6; // Neutral-ish if no items suggested, implies alignment
+      }
+
+    } catch (error: any) {
+        this.log(LogLevel.ERROR, 'supplement-generation-error-new', `Error during AIOrchestrator supplement generation: ${error.message}`, { jobId, error: error.toString(), stack: error.stack, agentType: this.agentType });
+        issuesOrSuggestions.push(`Critical error during supplement generation via AIOrchestrator: ${error.message}`);
+        overallConfidence = 0.1; // Very low on critical error
     }
-
-    const overallConfidence = this.calculateOverallSupplementConfidence(generatedSupplements, issuesOrSuggestions);
 
     const output: SupplementGenerationOutput = {
       jobId,
-      generatedSupplements,
+      generatedSupplements: generatedSupplementsForOutput,
       supplementRationales,
       issuesOrSuggestions,
-      overallConfidence
+      overallConfidence: parseFloat(overallConfidence.toFixed(3)),
     };
 
-    this.log(LogLevel.SUCCESS, 'supplement-generation-complete', 
-      `Supplement generation completed for job ${jobId}. Items: ${generatedSupplements.length}, Confidence: ${overallConfidence.toFixed(3)}`, 
-      { jobId, itemCount: generatedSupplements.length, confidence: overallConfidence, agentType: this.agentType }
+    this.log(LogLevel.SUCCESS, 'supplement-generation-complete-new', 
+      `Supplement generation completed for job ${jobId}. Items: ${generatedSupplementsForOutput.length}, Confidence: ${output.overallConfidence}`, 
+      { jobId, itemCount: generatedSupplementsForOutput.length, confidence: output.overallConfidence, agentType: this.agentType }
     );
 
     return {
       data: output,
-      validation: await this.validate(output, context),
+      validation: await this.validate(output, context), // Validate method might need adjustment based on new output structure
       processingTimeMs: 0, // Set by base Agent
-      model: this.anthropic ? 'anthropic' : 'openai' // Primary provider used
+      model: 'ai_orchestrator' // Indicate the new source
     };
   }
 
-  private isExtractedField(obj: any): obj is ExtractedField<any> {
-    return obj && typeof obj === 'object' && 'value' in obj && 'confidence' in obj && 'source' in obj;
-  }
+  // Remove or comment out old AI call and parsing logic:
+  // private constructSupplementPrompt(...) { ... }
+  // private parseAISupplementResponse(...) { ... }
+  // private callAI(...) { ... } // If this was specific to this agent and not from base
+  // private getAIConfigs(...) { ... } // If this was specific to this agent
 
-  private constructSupplementPrompt(input: SupplementGeneratorInput, basePrompt?: string): string {
-    let prompt = basePrompt || "You are an expert roofing supplement writer. Based on the provided estimate, roof report, and discrepancy analysis, generate a list of potential supplement items.";
-
-    prompt += "\n\n== Context ==\nJob ID: " + input.jobId;
-
-    const replacer = (key: string, value: any) => {
-      if (this.isExtractedField(value)) return value.value;
-      // Handle Date objects specifically for better string representation
-      if (value instanceof Date) return value.toISOString();
-      return value;
-    };
-
-    if (input.estimateExtractionData) {
-      prompt += "\n\n== Estimate Data Summary ==\n";
-      prompt += JSON.stringify(input.estimateExtractionData, replacer, 2);
-    }
-    if (input.roofReportData) {
-      prompt += "\n\n== Roof Report Data Summary ==\n";
-      prompt += JSON.stringify(input.roofReportData, replacer, 2);
-    }
-    if (input.discrepancyReport) {
-      prompt += "\n\n== Discrepancy Analysis Summary ==\n";
-      prompt += JSON.stringify({
-        aiSummary: input.discrepancyReport.aiSummary,
-        consistencyWarnings: input.discrepancyReport.consistencyWarnings,
-        overallConsistencyScore: input.discrepancyReport.overallConsistencyScore,
-        // Include a few key mismatch/missing comparisons for context
-        keyComparisons: input.discrepancyReport.comparisons
-            .filter(c => c.status === 'MISMATCH' || c.status === 'MISSING_IN_ESTIMATE' || c.status === 'MISSING_IN_ROOF_REPORT')
-            .slice(0, 5) // Limit for brevity
-      }, replacer, 2);
-    }
-
-    prompt += "\n\n== Instructions for Supplement Generation ==\n";
-    prompt += "Focus on items commonly missed or underpaid. Consider code requirements, manufacturer specifications, and best practices. For each item, provide:";
-    prompt += "\n1. Xactimate Code (e.g., RFG R&RSHINGLE, RFG FELT15) - Be precise.";
-    prompt += "\n2. Description (standard Xactimate description). Example: 'Shingles - comp. - dimensional - remove & replace'";
-    prompt += "\n3. Quantity (numeric). Calculate accurately if possible (e.g. based on linear feet for drip edge, or area for felt).";
-    prompt += "\n4. Unit (e.g., SF, LF, EA, SQ). Ensure it matches the Xactimate code.";
-    prompt += "\n5. Justification (brief but clear reason why this item is needed, referencing estimate, roof report, or discrepancies). Example: 'Roof report indicates 250 LF of eave, estimate only covers 200 LF. Add missing 50 LF of drip edge.'";
-    prompt += "\n6. Confidence (your confidence 0.0-1.0 in this specific item being a valid supplement).";
-    prompt += "\nReturn ONLY a JSON object with a single key 'supplements' which is an array of objects, each object representing a supplement item with keys: 'xactimateCode', 'description', 'quantity', 'unit', 'justification', 'confidence'.";
-    prompt += "\nIf there are issues or no clear supplements, return an empty array for 'supplements' and add a note in a separate top-level key 'issues' (array of strings). Example: { \"supplements\": [], \"issues\": [\"Estimate and roof report are perfectly aligned, no obvious supplements found.\"] }";
-    prompt += "\nPrioritize items with strong evidence from the provided data.";
-
-    return prompt;
-  }
-
-  private parseAISupplementResponse(aiResponseText: string, jobId: string): { supplements: GeneratedSupplementItem[]; rationales: Record<string, string>; issues: string[] } {
-    const supplements: GeneratedSupplementItem[] = [];
-    const rationales: Record<string, string> = {};
-    let issues: string[] = [];
-
-    try {
-      const cleanedResponse = aiResponseText.replace(/^```json\n|\n```$/gim, '').trim();
-      const parsed = JSON.parse(cleanedResponse);
-
-      if (Array.isArray(parsed.issues)) {
-        issues = parsed.issues.map((issue: any) => String(issue));
-      }
-
-      if (Array.isArray(parsed.supplements)) {
-        for (const item of parsed.supplements) {
-          if (item && typeof item.xactimateCode === 'string' && typeof item.description === 'string' && typeof item.quantity === 'number' && typeof item.unit === 'string' && typeof item.justification === 'string' && typeof item.confidence === 'number') {
-            const supplementId = uuidv4();
-            supplements.push({
-              id: supplementId,
-              xactimateCode: item.xactimateCode,
-              description: item.description,
-              quantity: item.quantity,
-              unit: item.unit,
-              justification: item.justification,
-              confidence: Math.max(0.1, Math.min(1.0, item.confidence)), // Clamp confidence
-              sourceRecommendationId: 'ai_generated' // Could be more specific if AI provides a link
-            });
-            rationales[supplementId] = item.justification;
-          } else {
-            this.log(LogLevel.WARN, 'invalid-supplement-item-structure', 'AI returned a supplement item with invalid structure.', { item, jobId, agentType: this.agentType });
-            issues.push('AI provided a malformed supplement item, it was skipped.');
-          }
-        }
-      }
-    } catch (error) {
-      this.log(LogLevel.ERROR, 'ai-supplement-response-parse-error', `Failed to parse AI supplement response: ${error}. Raw: ${aiResponseText.substring(0, 500)}`, { error, jobId, agentType: this.agentType });
-      issues.push(`Failed to parse AI response for supplements: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    return { supplements, rationales, issues };
-  }
-
-  private calculateOverallSupplementConfidence(supplements: GeneratedSupplementItem[], issues: string[]): number {
-    if (issues.length > 0 && supplements.length === 0) return 0.1; // Very low if only issues
-    if (supplements.length === 0) return 0.4; // Neutral-low if no supplements and no explicit issues from AI
-
-    const averageItemConfidence = supplements.reduce((sum, item) => sum + item.confidence, 0) / supplements.length;
-    let confidence = averageItemConfidence;
-
-    // Penalize for issues reported by AI or parsing
-    confidence -= issues.length * 0.1; 
-
-    return Math.max(0.05, Math.min(0.95, confidence));
-  }
-
+  // The validate method might need to be updated if the structure of SupplementGenerationOutput
+  // or the expectations for validation have changed significantly.
+  // For now, we assume it can work with the new output or will be reviewed separately.
   async validate(result: SupplementGenerationOutput, context: TaskContext): Promise<ValidationResult> {
-    this.log(LogLevel.INFO, 'validating-supplements', `Validating generated supplements for job ${result.jobId}`, { agentType: this.agentType });
+    this.log(LogLevel.INFO, 'validating-supplement-generation', `Validating supplement generation output for job ${result.jobId}`, { parentTaskId: context.taskId, agentType: this.agentType });
     const errors: string[] = [];
-    const warningsMsg: string[] = [];
+    const warnings: string[] = [];
+    const suggestions: string[] = [];
 
-    if (!result.jobId) errors.push('Job ID is missing from the supplement output.');
-    if (!Array.isArray(result.generatedSupplements)) errors.push('Generated supplements is not an array.');
-    if (typeof result.overallConfidence !== 'number' || result.overallConfidence < 0 || result.overallConfidence > 1) {
-      errors.push(`Overall confidence (${result.overallConfidence}) is invalid.`);
+    if (result.issuesOrSuggestions && result.issuesOrSuggestions.length > 0) {
+        result.issuesOrSuggestions.forEach(issue => {
+            if (issue.toLowerCase().includes('critical') || issue.toLowerCase().includes('error')) {
+                errors.push(`Agent reported issue: ${issue}`);
+            } else {
+                warnings.push(`Agent reported info/suggestion: ${issue}`);
+            }
+        });
     }
 
-    if (result.generatedSupplements.length > 0) {
-      result.generatedSupplements.forEach((item, index) => {
-        if (!item.id) warningsMsg.push(`Supplement item ${index} is missing an ID.`);
-        if (!item.xactimateCode) warningsMsg.push(`Supplement item '${item.description || index}' is missing an Xactimate code.`);
-        if (!item.description) warningsMsg.push(`Supplement item code '${item.xactimateCode || index}' is missing a description.`);
-        if (typeof item.quantity !== 'number' || item.quantity <= 0) warningsMsg.push(`Supplement item '${item.description || index}' has invalid quantity: ${item.quantity}.`);
-        if (!item.unit) warningsMsg.push(`Supplement item '${item.description || index}' is missing a unit.`);
-        if (!item.justification) warningsMsg.push(`Supplement item '${item.description || index}' is missing a justification.`);
-        if (typeof item.confidence !== 'number' || item.confidence < 0 || item.confidence > 1) {
-          warningsMsg.push(`Supplement item '${item.description || index}' has invalid confidence: ${item.confidence}.`);
-        }
-      });
+    if (result.generatedSupplements.length === 0 && result.overallConfidence < 0.5 && (!result.issuesOrSuggestions || result.issuesOrSuggestions.length === 0) ) {
+      warnings.push('No supplement items were generated, and confidence is low, but no specific issues reported by the agent. This might indicate a problem or perfect alignment.');
     }
+
+    result.generatedSupplements.forEach(item => {
+      if (!item.xactimateCode || item.xactimateCode === 'TBD') {
+        warnings.push(`Supplement item '${item.description.substring(0,30)}...' is missing an Xactimate code.`);
+      }
+      if (item.quantity <= 0) {
+        errors.push(`Supplement item '${item.description.substring(0,30)}...' has invalid quantity: ${item.quantity}.`);
+      }
+      if (!item.unit) {
+        errors.push(`Supplement item '${item.description.substring(0,30)}...' is missing a unit.`);
+      }
+      if (!item.justification) {
+        warnings.push(`Supplement item '${item.description.substring(0,30)}...' is missing a justification.`);
+      }
+      if (item.confidence < 0.3) {
+        warnings.push(`Supplement item '${item.description.substring(0,30)}...' has very low confidence: ${item.confidence.toFixed(2)}.`);
+      }
+    });
     
-    if (result.issuesOrSuggestions && result.issuesOrSuggestions.length > 0 && result.overallConfidence > 0.7) {
-        warningsMsg.push('High confidence supplements reported, but AI also provided issues/suggestions. Review carefully.')
+    const isValid = errors.length === 0;
+    // Recalculate overall confidence based on validation pass, if desired, or keep agent's
+    let validationConfidence = result.overallConfidence;
+    if (!isValid) {
+        validationConfidence = Math.min(result.overallConfidence, 0.4); // Lower confidence if validation errors
     }
 
-    const validationConfidence = result.overallConfidence * 0.7 + (errors.length > 0 ? 0 : 0.15) + (warningsMsg.length > 0 ? 0 : 0.15) ;
 
     return {
-      isValid: errors.length === 0,
-      confidence: Math.max(0.1, Math.min(0.95, validationConfidence)),
+      isValid,
+      confidence: parseFloat(validationConfidence.toFixed(3)),
       errors,
-      warnings: warningsMsg,
-      suggestions: result.issuesOrSuggestions || []
+      warnings,
+      suggestions
     };
   }
-  
-  private async getAIConfigs(stepNames: string[]): Promise<Record<string, AIConfig>> {
-    this.log(LogLevel.DEBUG, 'get-supplement-ai-configs', `Fetching AI configs for: ${stepNames.join(', ')}`, { agentType: this.agentType });
-    const configs: Record<string, AIConfig> = {};
-    for (const stepName of stepNames) {
-      const { data, error } = await this.supabase
-        .from('ai_configs')
-        .select('*')
-        .eq('step_name', stepName)
-        .single();
 
-      if (error) {
-        this.log(LogLevel.WARN, 'supplement-config-fetch-error', `Error fetching AI config for ${stepName}: ${error.message}`, { agentType: this.agentType });
-        configs[stepName] = {
-            step_name: stepName,
-            prompt: "Generate roofing supplement items based on provided data. Return JSON as per instructions.", // Default concise prompt
-            model_provider: this.anthropic ? 'anthropic' : 'openai',
-            model_name: this.anthropic ? 'claude-3-opus-20240229' : 'gpt-4-turbo-preview', // Use stronger models for generation
-            temperature: 0.4, // Allow a bit more creativity/thoroughness
-            max_tokens: 2000, // Allow for more detailed output
-            json_mode: true
-        };
-      } else if (data) {
-        configs[stepName] = data as AIConfig;
-      } else {
-         this.log(LogLevel.WARN, 'supplement-config-not-found', `AI config not found for ${stepName}, using default.`, { agentType: this.agentType });
-         configs[stepName] = {
-            step_name: stepName,
-            prompt: "Generate roofing supplement items. Return JSON.",
-            model_provider: this.anthropic ? 'anthropic' : 'openai',
-            model_name: this.anthropic ? 'claude-3-opus-20240229' : 'gpt-4-turbo-preview',
-            temperature: 0.4,
-            max_tokens: 2000,
-            json_mode: true
-        }; 
-      }
-    }
-    return configs;
-  }
+  // Ensure getAIConfigs and callAI are removed if they were specific to this agent's old method
+  // and not part of the base Agent class or shared utility.
+  // If they are from base or utility, they can remain.
+  // For this edit, we assume they are not needed for the new AIOrchestrator flow.
 
-  private async callAI(config: AIConfig, prompt: string, jobId: string): Promise<string> {
-    this.log(LogLevel.DEBUG, 'supplement-ai-call-start', `Calling ${config.model_provider} model ${config.model_name} for job ${jobId}`, { agentType: this.agentType });
-    const startTime = Date.now();
-    try {
-      let responseText = '';
-      const messages = [{ role: 'user' as const, content: prompt }];
-
-      if (config.model_provider === 'openai' && this.openai) {
-        const response = await this.openai.chat.completions.create({
-          model: config.model_name || 'gpt-4-turbo-preview',
-          messages: messages,
-          max_tokens: config.max_tokens || 2000,
-          temperature: config.temperature || 0.4,
-          response_format: { type: "json_object" },
-        });
-        responseText = response.choices[0]?.message?.content || '';
-      } else if (config.model_provider === 'anthropic' && this.anthropic) {
-        const systemPrompt = "You are an expert supplement writer for roofing claims. Your responses MUST be in JSON format, strictly adhering to the structure requested in the user prompt. Generate a list of supplement items based on the provided context.";
-        const response = await this.anthropic.messages.create({
-          model: config.model_name || 'claude-3-opus-20240229',
-          max_tokens: config.max_tokens || 2000,
-          temperature: config.temperature || 0.4,
-          system: systemPrompt,
-          messages: messages
-        });
-        responseText = Array.isArray(response.content) && response.content[0]?.type === 'text' ? response.content[0].text : '';
-      } else {
-        throw new Error(`Unsupported AI provider or client not initialized for supplement generation: ${config.model_provider}`);
-      }
-      
-      const duration = Date.now() - startTime;
-      this.log(LogLevel.INFO, 'supplement-ai-call-success', 
-        `${config.model_provider} call for ${jobId} completed in ${duration}ms. Output length: ${responseText.length}`,
-        { duration, outputLength: responseText.length, provider: config.model_provider, model: config.model_name, agentType: this.agentType }
-      );
-      return responseText;
-
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      this.log(LogLevel.ERROR, 'supplement-ai-call-error', 
-        `${config.model_provider} call for ${jobId} failed after ${duration}ms: ${error}`,
-        { duration, error, provider: config.model_provider, model: config.model_name, agentType: this.agentType }
-      );
-      throw error;
-    }
-  }
 } 

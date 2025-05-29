@@ -24,6 +24,7 @@ import { logStreamer } from '@/lib/log-streamer'
 interface EstimateExtractionInput {
   pdfBuffer: Buffer
   strategy?: ExtractionStrategy
+  jobId?: string
 }
 
 /**
@@ -68,6 +69,9 @@ export class EstimateExtractorAgent extends Agent {
   }
 
   async plan(input: EstimateExtractionInput, context: TaskContext): Promise<AgentExecutionPlan> {
+    const jobId = input.jobId || context.jobId;
+    logStreamer.logDebug(jobId, 'estimate_extractor_plan', 'EstimateExtractorAgent.plan() starting', { strategy: input.strategy, hasPdfBuffer: !!input.pdfBuffer });
+    
     const tasks = [
       {
         id: uuidv4(),
@@ -108,24 +112,22 @@ export class EstimateExtractorAgent extends Agent {
     if (tasks.length > 2) {
     }
 
-    return {
+    const plan = {
       tasks,
       dependencies,
       estimatedDuration: 30000,
       confidence: 0.8
-    }
+    };
+    
+    logStreamer.logDebug(jobId, 'estimate_extractor_plan_complete', 'EstimateExtractorAgent.plan() completed', { taskCount: tasks.length, estimatedDuration: plan.estimatedDuration });
+    return plan;
   }
 
   async act(input: EstimateExtractionInput, context: TaskContext): Promise<AgentResult<EstimateFieldExtractions>> {
-    this.log(LogLevel.INFO, 'extraction-start', `Starting estimate data extraction for task ${context.taskId}`)
-    logStreamer.logStep(context.jobId || 'unknown-job', 'estimate_extraction_start', 'EstimateExtractorAgent processing started', {
-      input: {
-        strategy: input.strategy,
-        hasPdfBuffer: !!input.pdfBuffer,
-      },
-      agentVersion: this.config.version,
-      taskId: context.taskId
-    });
+    const jobId = input.jobId || context.jobId;
+
+    this.log(LogLevel.INFO, 'estimate_extraction_start', `EstimateExtractorAgent processing started for job ${jobId}`, { strategy: input.strategy });
+    logStreamer.logStep(jobId, 'estimate_extraction_start', 'EstimateExtractorAgent processing started', { strategy: input.strategy });
     
     let textExtractionResult: string = ''
     let textConfidence = 0
@@ -133,9 +135,25 @@ export class EstimateExtractorAgent extends Agent {
     let visionResults: EstimateFieldExtractions | null = null
     
     try {
+      if (!input.pdfBuffer) {
+        logStreamer.logStep(jobId, 'estimate_pdf_missing_warning', 'WARNING: No PDF buffer provided to EstimateExtractorAgent');
+        this.log(LogLevel.WARN, 'estimate_pdf_missing', 'No PDF buffer provided.');
+        throw new Error('No PDF buffer provided for estimate extraction.');
+      }
+      
+      logStreamer.logDebug(jobId, 'estimate_extractor_pdf_received', 'PDF buffer received for processing', { bufferSize: input.pdfBuffer.length });
+
       this.log(LogLevel.DEBUG, 'text-extraction', 'Extracting text from PDF', { taskId: context.taskId })
+      logStreamer.logDebug(jobId, 'pdf_text_extraction_start', 'Starting PDF text extraction', { taskId: context.taskId });
+      
       textExtractionResult = await PDFProcessor.extractText(input.pdfBuffer)
       textConfidence = this.calculateTextQuality(textExtractionResult)
+      
+      logStreamer.logDebug(jobId, 'pdf_text_extraction_complete', 'PDF text extraction completed', { 
+        textLength: textExtractionResult.length,
+        textQuality: textConfidence,
+        taskId: context.taskId 
+      });
       
       this.log(LogLevel.INFO, 'text-extracted', 
         `Text extraction completed. Quality score: ${textConfidence.toFixed(3)}`,
@@ -147,11 +165,24 @@ export class EstimateExtractorAgent extends Agent {
            input.strategy === ExtractionStrategy.HYBRID || 
            input.strategy === ExtractionStrategy.FALLBACK)) {
         this.log(LogLevel.DEBUG, 'field-extraction-text', 'Extracting fields from text', { taskId: context.taskId })
+        logStreamer.logDebug(jobId, 'text_field_extraction_start', 'Starting field extraction from text', { textQuality: textConfidence, strategy: input.strategy });
+        
         try {
           textResults = await this.extractFieldsFromText(textExtractionResult, context)
+          logStreamer.logDebug(jobId, 'text_field_extraction_success', 'Field extraction from text completed', { 
+            extractedFields: Object.keys(textResults).length,
+            overallConfidence: this.getOverallConfidence(textResults)
+          });
         } catch (textError) {
           this.log(LogLevel.WARN, 'text-extraction-error', `Field extraction from text failed: ${textError}`, { taskId: context.taskId, error: textError })
+          logStreamer.logError(jobId, 'text_field_extraction_error', `Field extraction from text failed: ${textError}`, { error: textError });
         }
+      } else {
+        logStreamer.logDebug(jobId, 'text_field_extraction_skipped', 'Skipping text field extraction', { 
+          textQuality: textConfidence, 
+          strategy: input.strategy,
+          reason: textConfidence <= 0.3 ? 'Low text quality' : 'Strategy does not include text extraction'
+        });
       }
 
       const shouldUseVision = (
@@ -161,16 +192,31 @@ export class EstimateExtractorAgent extends Agent {
       )
 
       if (shouldUseVision) {
+        logStreamer.logDebug(jobId, 'vision_extraction_check', 'Checking vision extraction availability', { shouldUseVision, strategy: input.strategy });
+        
         if (await PDFToImagesTool.isAvailable() && this.visionProcessor.isAvailable()) {
           this.log(LogLevel.INFO, 'vision-fallback', 'Using vision models for extraction', { taskId: context.taskId })
+          logStreamer.logStep(jobId, 'vision_extraction_start', 'Starting vision-based field extraction', { taskId: context.taskId });
+          
           try {
             visionResults = await this.extractFieldsFromVision(input.pdfBuffer, context)
+            logStreamer.logDebug(jobId, 'vision_extraction_success', 'Vision field extraction completed', { 
+              extractedFields: Object.keys(visionResults).length,
+              overallConfidence: this.getOverallConfidence(visionResults)
+            });
           } catch (visionError) {
             this.log(LogLevel.WARN, 'vision-extraction-error', `Field extraction from vision failed: ${visionError}`, { taskId: context.taskId, error: visionError })
+            logStreamer.logError(jobId, 'vision_extraction_error', `Field extraction from vision failed: ${visionError}`, { error: visionError });
           }
         } else {
           this.log(LogLevel.WARN, 'vision-unavailable', 'Vision processing requested but tools are not available', { taskId: context.taskId })
+          logStreamer.logStep(jobId, 'vision_extraction_unavailable', 'Vision processing requested but tools are not available', { 
+            pdfToImagesAvailable: await PDFToImagesTool.isAvailable(),
+            visionProcessorAvailable: this.visionProcessor.isAvailable()
+          });
         }
+      } else {
+        logStreamer.logDebug(jobId, 'vision_extraction_skipped', 'Vision extraction not needed for this strategy', { strategy: input.strategy });
       }
 
       if (!textResults && !visionResults) {
@@ -183,7 +229,7 @@ export class EstimateExtractorAgent extends Agent {
         `Extraction completed with overall confidence: ${overallConfidence.toFixed(3)}`,
         { taskId: context.taskId, overallConfidence }
       )
-      logStreamer.logStep(context.jobId || 'unknown-job', 'estimate_extraction_complete', 
+      logStreamer.logStep(jobId, 'estimate_extraction_complete', 
         `EstimateExtractorAgent processing finished. Overall confidence: ${overallConfidence.toFixed(3)}`, 
         {
           outputSummary: {
@@ -212,15 +258,8 @@ export class EstimateExtractorAgent extends Agent {
       }
 
     } catch (error: any) {
-      this.log(LogLevel.ERROR, 'extraction-failed', `Extraction failed: ${error}`)
-      logStreamer.logError(context.jobId || 'unknown-job', 'estimate_extraction_failed', 
-        `EstimateExtractorAgent failed: ${error.message}`,
-        {
-          error: error.toString(),
-          stack: error.stack,
-          taskId: context.taskId
-        }
-      );
+      this.log(LogLevel.ERROR, 'estimate_extraction_error', `Error during estimate extraction for job ${jobId}: ${error.message}`, { stack: error.stack, jobId });
+      logStreamer.logError(jobId, 'estimate_extraction_error', `Error in EstimateExtractorAgent: ${error.message}`, { stack: error.stack });
       throw error
     }
   }
@@ -259,7 +298,7 @@ export class EstimateExtractorAgent extends Agent {
     const overallConfidence = this.getOverallConfidence(result)
     
     if (overallConfidence < this.config.confidenceThreshold) {
-      suggestions.push(`Overall confidence (${overallConfidence.toFixed(2)}) is below threshold (${this.config.confidenceThreshold}). Manual review recommended.`)
+      warnings.push(`LOW CONFIDENCE: Overall confidence (${overallConfidence.toFixed(2)}) is below threshold (${this.config.confidenceThreshold}). Data is displayed but manual review strongly recommended.`)
     }
     
     if (result.lineItems?.source === 'vision' || (!result.lineItems?.value && result.totalRCV?.value && result.totalRCV.value > 0) ){
@@ -276,6 +315,12 @@ export class EstimateExtractorAgent extends Agent {
   }
 
   public async extractFieldsFromText(text: string, context: TaskContext): Promise<EstimateFieldExtractions> {
+    const jobId = context.jobId;
+    logStreamer.logDebug(jobId, 'extract_fields_from_text_start', 'EstimateExtractorAgent.extractFieldsFromText() starting', { 
+      textLength: text.length, 
+      taskId: context.taskId 
+    });
+    
     this.log(LogLevel.DEBUG, 'ai-extraction-text-start', 'Starting AI field extraction from text', { taskId: context.taskId })
     
     const fieldConfigs = await this.getAIConfigs([
@@ -289,6 +334,8 @@ export class EstimateExtractorAgent extends Agent {
     ])
 
     // Extract fields in parallel
+    logStreamer.logDebug(jobId, 'parallel_field_extraction_start', 'Starting parallel field extraction', { fieldCount: 7 });
+    
     const [address, claimNumber, carrier, rcv, acv, deductible, dol] = await Promise.all([
       this.extractSingleField('propertyAddress', text, fieldConfigs.extract_estimate_address, context),
       this.extractSingleField('claimNumber', text, fieldConfigs.extract_estimate_claim, context),
@@ -298,8 +345,25 @@ export class EstimateExtractorAgent extends Agent {
       this.extractSingleField('deductible', text, fieldConfigs.extract_estimate_deductible, context),
       this.extractSingleField('dateOfLoss', text, fieldConfigs.extract_estimate_date_of_loss, context)
     ])
+    
+    logStreamer.logDebug(jobId, 'parallel_field_extraction_complete', 'Parallel field extraction completed', {
+      extractedValues: {
+        propertyAddress: address.value,
+        claimNumber: claimNumber.value,
+        insuranceCarrier: carrier.value,
+        totalRCV: rcv.value,
+        totalACV: acv.value,
+        deductible: deductible.value,
+        dateOfLoss: dol.value
+      }
+    });
 
+    logStreamer.logDebug(jobId, 'line_items_extraction_start', 'Starting line items extraction');
     const lineItems = await this.extractLineItems(text, context)
+    logStreamer.logDebug(jobId, 'line_items_extraction_complete', 'Line items extraction completed', { 
+      lineItemCount: lineItems.value?.length || 0,
+      confidence: lineItems.confidence
+    });
     
     const parseNumeric = (field: ExtractedField<string | null>): number | null => {
       if (field.value === null || field.value === undefined || field.value.trim() === '') return null;
@@ -313,7 +377,7 @@ export class EstimateExtractorAgent extends Agent {
       return isNaN(date.getTime()) ? null : date;
     };
 
-    return {
+    const result = {
       propertyAddress: address,
       claimNumber: claimNumber,
       insuranceCarrier: carrier,
@@ -334,17 +398,41 @@ export class EstimateExtractorAgent extends Agent {
         value: parseNumeric(deductible)
       },
       lineItems: lineItems
-    }
+    };
+    
+    logStreamer.logDebug(jobId, 'extract_fields_from_text_complete', 'EstimateExtractorAgent.extractFieldsFromText() completed', {
+      overallConfidence: this.getOverallConfidence(result)
+    });
+    
+    return result;
   }
 
   public async extractFieldsFromVision(pdfBuffer: Buffer, context: TaskContext): Promise<EstimateFieldExtractions> {
+    const jobId = context.jobId;
+    logStreamer.logDebug(jobId, 'extract_fields_from_vision_start', 'EstimateExtractorAgent.extractFieldsFromVision() starting', { 
+      bufferSize: pdfBuffer.length,
+      taskId: context.taskId 
+    });
+    
     this.log(LogLevel.DEBUG, 'vision-extraction-start', 'Starting vision-based field extraction', { taskId: context.taskId })
     
+    logStreamer.logDebug(jobId, 'pdf_to_images_start', 'Converting PDF to images for vision processing');
     const imageDataUrls = await PDFToImagesTool.convertPDFToDataURLs(pdfBuffer, { dpi: 300, format: 'jpg', quality: 85 })
     this.log(LogLevel.INFO, 'pdf-converted-vision', `PDF converted to ${imageDataUrls.length} images for vision processing`, { taskId: context.taskId })
+    logStreamer.logDebug(jobId, 'pdf_to_images_complete', 'PDF to images conversion completed', { 
+      imageCount: imageDataUrls.length,
+      taskId: context.taskId 
+    });
 
     const visionModel = this.anthropic ? 'anthropic' : (this.openai ? 'openai' : null)
+    logStreamer.logDebug(jobId, 'vision_model_selection', 'Vision model selected', { 
+      selectedModel: visionModel,
+      hasAnthropic: !!this.anthropic,
+      hasOpenAI: !!this.openai
+    });
+    
     if (!visionModel) {
+      logStreamer.logError(jobId, 'vision_model_unavailable', 'No vision AI model is configured and available');
       throw new Error('No vision AI model (Anthropic or OpenAI) is configured and available.')
     }
 
@@ -380,16 +468,32 @@ Return the information ONLY in this exact JSON format. Do not add any commentary
 If a field is not found or unclear, use null. For numeric fields, return only the number, no currency symbols or text.
     `
 
+    logStreamer.logDebug(jobId, 'vision_analysis_start', 'Starting vision analysis with AI model', { 
+      model: visionConfig.model,
+      provider: visionConfig.provider,
+      imageCount: imageDataUrls.length
+    });
+    
     const visionResult = await this.visionProcessor.analyzeImages(imageDataUrls, prompt, visionConfig)
     this.log(LogLevel.INFO, 'vision-analysis-complete', 
       `Vision analysis completed. Confidence: ${visionResult.confidence.toFixed(3)}, Model: ${visionResult.model}`,
       { taskId: context.taskId, confidence: visionResult.confidence, model: visionResult.model }
     )
+    
+    logStreamer.logDebug(jobId, 'vision_analysis_complete', 'Vision analysis completed', {
+      confidence: visionResult.confidence,
+      model: visionResult.model,
+      responseLength: visionResult.extractedText.length
+    });
 
     try {
+      logStreamer.logDebug(jobId, 'vision_response_parsing', 'Parsing vision model JSON response', { 
+        responseLength: visionResult.extractedText.length 
+      });
+      
       const parsed = JSON.parse(visionResult.extractedText.replace(/,(?=\s*\})/g, ''));
       
-      return {
+      const result = {
         propertyAddress: this.createExtractedField(parsed.propertyAddress, visionResult.confidence, 'Extracted via vision', 'vision'),
         claimNumber: this.createExtractedField(parsed.claimNumber, visionResult.confidence, 'Extracted via vision', 'vision'),
         insuranceCarrier: this.createExtractedField(parsed.insuranceCarrier, visionResult.confidence, 'Extracted via vision', 'vision'),
@@ -398,7 +502,22 @@ If a field is not found or unclear, use null. For numeric fields, return only th
         totalACV: this.createExtractedField(parsed.totalACV, visionResult.confidence * 0.9, 'Extracted via vision', 'vision'),
         deductible: this.createExtractedField(parsed.deductible, visionResult.confidence * 0.9, 'Extracted via vision', 'vision'),
         lineItems: this.createExtractedField([], 0.3, 'Line items not extracted by this vision prompt', 'vision')
-      }
+      };
+      
+      logStreamer.logDebug(jobId, 'extract_fields_from_vision_complete', 'EstimateExtractorAgent.extractFieldsFromVision() completed', {
+        parsedValues: {
+          propertyAddress: parsed.propertyAddress,
+          claimNumber: parsed.claimNumber,
+          insuranceCarrier: parsed.insuranceCarrier,
+          totalRCV: parsed.totalRCV,
+          totalACV: parsed.totalACV,
+          deductible: parsed.deductible,
+          dateOfLoss: parsed.dateOfLoss
+        },
+        overallConfidence: this.getOverallConfidence(result)
+      });
+      
+      return result;
     } catch (error) {
       this.log(LogLevel.WARN, 'vision-parse-failed', `Failed to parse vision model JSON response: ${visionResult.extractedText}. Error: ${error}`)
       throw new Error(`Failed to parse vision model response. Raw: ${visionResult.extractedText}. Error: ${error}`)
@@ -406,11 +525,15 @@ If a field is not found or unclear, use null. For numeric fields, return only th
   }
 
   public async getAIConfigs(stepNames: string[]): Promise<Record<string, AIConfig>> {
+    logStreamer.logDebug('unknown', 'get_ai_configs_start', 'EstimateExtractorAgent.getAIConfigs() starting', { 
+      stepNames: stepNames 
+    });
+    
     this.log(LogLevel.DEBUG, 'get-ai-configs', `Fetching AI configs for steps: ${stepNames.join(', ')}`)
     const configs: Record<string, AIConfig> = {}
     for (const stepName of stepNames) {
       const { data, error } = await this.supabase
-        .from('ai_configs')
+        .from('ai_config')
         .select('*')
         .eq('step_name', stepName)
         .single()
@@ -419,17 +542,43 @@ If a field is not found or unclear, use null. For numeric fields, return only th
         this.log(LogLevel.WARN, 'config-fetch-error', `Error fetching AI config for ${stepName}: ${error.message}`)
         configs[stepName] = { step_name: stepName, prompt: '', model_provider: 'openai', model_name: 'gpt-3.5-turbo' } 
       } else if (data) {
-        configs[stepName] = data as AIConfig
+        // Map database columns to AIConfig interface
+        configs[stepName] = {
+          step_name: data.step_name,
+          prompt: data.prompt,
+          model_provider: data.provider, // Map database 'provider' to 'model_provider'
+          model_name: data.model, // Map database 'model' to 'model_name'
+          temperature: data.temperature,
+          max_tokens: data.max_tokens
+        }
       } else {
          configs[stepName] = { step_name: stepName, prompt: `Extract ${stepName}`, model_provider: 'openai', model_name: 'gpt-3.5-turbo' } 
       }
     }
+    
+    logStreamer.logDebug('unknown', 'get_ai_configs_complete', 'EstimateExtractorAgent.getAIConfigs() completed', { 
+      configCount: Object.keys(configs).length,
+      stepNames: Object.keys(configs)
+    });
+    
     return configs
   }
 
   public async extractSingleField(fieldName: string, text: string, config: AIConfig, context: TaskContext): Promise<ExtractedField<string | null>> {
+    const jobId = context.jobId;
+    logStreamer.logDebug(jobId, 'extract_single_field_start', `EstimateExtractorAgent.extractSingleField() starting for ${fieldName}`, { 
+      fieldName,
+      hasConfig: !!config,
+      hasPrompt: !!(config?.prompt),
+      provider: config?.model_provider,
+      model: config?.model_name,
+      temperature: config?.temperature,
+      maxTokens: config?.max_tokens
+    });
+    
     if (!config || !config.prompt) {
       this.log(LogLevel.WARN, 'missing-config', `No AI config or prompt for field: ${fieldName}`)
+      logStreamer.logStep(jobId, 'missing_field_config', `Missing AI configuration for field: ${fieldName}`, { fieldName });
       return this.createExtractedField(null, 0.1, `Missing AI configuration for ${fieldName}`, 'text');
     }
 
@@ -437,38 +586,130 @@ If a field is not found or unclear, use null. For numeric fields, return only th
     this.log(LogLevel.DEBUG, 'extract-single-field', `Extracting field ${fieldName} with ${config.model_provider}/${config.model_name}`, { taskId: context.taskId })
     
     try {
+      // Log the prompt being used for debugging
+      if (fieldName === 'dateOfLoss') {
+        logStreamer.logDebug(jobId, 'date_of_loss_prompt_debug', 'Date of loss prompt being used', {
+          promptLength: fullPrompt.length,
+          promptPreview: fullPrompt.substring(0, 200),
+          temperature: config.temperature
+        });
+      }
+      
       const aiResponse = await this.callAI(config, fullPrompt, context.taskId || 'unknown-task')
       const trimmedResponse = aiResponse.trim();
-      // Basic confidence: length of response, presence of non-whitespace
-      const confidence = trimmedResponse.length > 0 ? (trimmedResponse.length / (config.prompt.length * 0.2) + 0.5) : 0.2;
-      return this.createExtractedField(trimmedResponse.length > 0 ? trimmedResponse : null, Math.min(0.9, confidence), `Extracted via ${config.model_provider}`, 'text')
+      
+      // Improved confidence calculation based on response quality
+      let confidence = 0.2; // Base confidence for any response
+      if (trimmedResponse.length > 0) {
+        // Base confidence for non-empty response
+        confidence = 0.6;
+        
+        // Bonus for reasonable length (10-200 chars for most fields)
+        if (trimmedResponse.length >= 10 && trimmedResponse.length <= 200) {
+          confidence += 0.2;
+        }
+        
+        // Bonus for containing expected patterns
+        if (fieldName.toLowerCase().includes('address') && /\d+.*[A-Za-z]/.test(trimmedResponse)) {
+          confidence += 0.1;
+        } else if (fieldName.toLowerCase().includes('claim') && /[A-Za-z0-9\-]{5,}/.test(trimmedResponse)) {
+          confidence += 0.1;
+        } else if ((fieldName.toLowerCase().includes('rcv') || fieldName.toLowerCase().includes('acv') || fieldName.toLowerCase().includes('deductible')) && /\d+/.test(trimmedResponse)) {
+          confidence += 0.1;
+        } else if (fieldName.toLowerCase().includes('carrier') && trimmedResponse.length > 3) {
+          confidence += 0.1;
+        }
+      }
+      
+      const result = this.createExtractedField(trimmedResponse.length > 0 ? trimmedResponse : null, Math.min(0.9, confidence), `Extracted via ${config.model_provider}`, 'text');
+      
+      logStreamer.logDebug(jobId, 'extract_single_field_success', `Field extraction successful for ${fieldName}`, { 
+        fieldName,
+        extractedValue: result.value,
+        confidence: result.confidence,
+        responseLength: aiResponse.length
+      });
+      
+      return result;
     } catch (error) {
       this.log(LogLevel.ERROR, 'ai-call-error', `AI call failed for ${fieldName}: ${error}`, { error })
+      logStreamer.logError(jobId, 'extract_single_field_error', `AI call failed for ${fieldName}: ${error}`, { fieldName, error });
       return this.createExtractedField(null, 0.0, `AI extraction failed for ${fieldName}: ${error}`, 'text')
     }
   }
 
   public async extractLineItems(text: string, context: TaskContext): Promise<ExtractedField<any[]>> {
+    const jobId = context.jobId;
+    logStreamer.logDebug(jobId, 'extract_line_items_start', 'EstimateExtractorAgent.extractLineItems() starting', { 
+      textLength: text.length,
+      taskId: context.taskId 
+    });
+    
     this.log(LogLevel.DEBUG, 'extract-line-items', 'Extracting line items from text', { taskId: context.taskId })
     const config = (await this.getAIConfigs(['extract_line_items'])).extract_line_items
 
     if (!config || !config.prompt) {
       this.log(LogLevel.WARN, 'missing-line-item-config', 'AI config for line item extraction is missing.')
+      logStreamer.logStep(jobId, 'missing_line_item_config', 'AI config for line item extraction is missing');
       return this.createExtractedField([], 0.1, 'Missing AI configuration for line items', 'text');
     }
+
+    logStreamer.logDebug(jobId, 'line_items_config_loaded', 'Line items AI configuration loaded', {
+      hasPrompt: !!config.prompt,
+      provider: config.model_provider,
+      model: config.model_name,
+      temperature: config.temperature,
+      maxTokens: config.max_tokens
+    });
 
     const fullPrompt = `${config.prompt}\n\nDocument text:\n${text}`
 
     try {
       const aiResponse = await this.callAI(config, fullPrompt, context.taskId || 'unknown-task')
-      const lineItems = JSON.parse(aiResponse)
+      
+      // Enhanced JSON cleaning to handle all markdown variations
+      let cleanedResponse = aiResponse.trim();
+      
+      // Remove markdown code blocks (various formats)
+      if (cleanedResponse.includes('```')) {
+        // Handle ```json ... ``` format
+        cleanedResponse = cleanedResponse.replace(/```json\s*/g, '').replace(/\s*```/g, '');
+        // Handle ``` ... ``` format  
+        cleanedResponse = cleanedResponse.replace(/```\s*/g, '').replace(/\s*```/g, '');
+      }
+      
+      // Remove any leading/trailing text that isn't JSON
+      const jsonStart = cleanedResponse.indexOf('[');
+      const jsonEnd = cleanedResponse.lastIndexOf(']');
+      if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+        cleanedResponse = cleanedResponse.substring(jsonStart, jsonEnd + 1);
+      }
+      
+      // Remove any remaining backticks
+      cleanedResponse = cleanedResponse.replace(/`/g, '');
+      
+      // Final trim
+      cleanedResponse = cleanedResponse.trim();
+      
+      const lineItems = JSON.parse(cleanedResponse)
       const confidence = Array.isArray(lineItems) && lineItems.length > 0 ? 0.8 : 0.4;
-      return this.createExtractedField(lineItems, confidence, `Extracted via ${config.model_provider}`, 'text')
+      const result = this.createExtractedField(lineItems, confidence, `Extracted via ${config.model_provider}`, 'text');
+      
+      logStreamer.logDebug(jobId, 'extract_line_items_success', 'Line items extraction successful', { 
+        lineItemCount: lineItems?.length || 0,
+        confidence: confidence,
+        responseLength: aiResponse.length
+      });
+      
+      return result;
     } catch (error) {
       this.log(LogLevel.ERROR, 'line-item-parse-error', `Failed to parse line items JSON: ${error}. Raw: ${text.substring(0,100)}`, { error })
+      logStreamer.logError(jobId, 'line_item_parse_error', `Failed to parse line items JSON: ${error}`, { error });
+      
       const lines = text.split('\n').filter(l => l.trim().length > 5 && /\d/.test(l) && /[a-zA-Z]/.test(l));
       if(lines.length > 0) {
         this.log(LogLevel.WARN, 'line-item-fallback', 'Falling back to simple list extraction for line items');
+        logStreamer.logStep(jobId, 'line_item_fallback', 'Falling back to simple list extraction for line items', { fallbackLineCount: lines.length });
         return this.createExtractedField(lines.map(l => ({description: l.trim()})), 0.3, 'Fallback list extraction', 'text');
       }
       return this.createExtractedField([], 0.0, `Line item JSON parsing failed: ${error}`, 'text')
@@ -476,6 +717,12 @@ If a field is not found or unclear, use null. For numeric fields, return only th
   }
 
   public async callAI(config: AIConfig, prompt: string, jobId: string): Promise<string> {
+    logStreamer.logDebug(jobId, 'ai_call_start', 'EstimateExtractorAgent.callAI() starting', { 
+      provider: config.model_provider,
+      model: config.model_name,
+      promptLength: prompt.length
+    });
+    
     this.log(LogLevel.DEBUG, 'ai-call-start', `Calling ${config.model_provider} model ${config.model_name}`)
     const startTime = Date.now()
 
@@ -506,6 +753,14 @@ If a field is not found or unclear, use null. For numeric fields, return only th
         `${config.model_provider} call completed in ${duration}ms. Output length: ${responseText.length}`,
         { duration, outputLength: responseText.length, provider: config.model_provider, model: config.model_name }
       )
+      
+      logStreamer.logDebug(jobId, 'ai_call_success', 'AI call completed successfully', {
+        provider: config.model_provider,
+        model: config.model_name,
+        duration: duration,
+        outputLength: responseText.length
+      });
+      
       return responseText;
 
     } catch (error) {
@@ -585,8 +840,15 @@ If a field is not found or unclear, use null. For numeric fields, return only th
     visionResults: EstimateFieldExtractions | null,
     textQuality: number
   ): EstimateFieldExtractions {
+    logStreamer.logDebug('unknown', 'combine_extraction_results_start', 'EstimateExtractorAgent.combineExtractionResults() starting', {
+      hasTextResults: !!textResults,
+      hasVisionResults: !!visionResults,
+      textQuality: textQuality
+    });
+    
     if (!textResults && !visionResults) {
         this.log(LogLevel.WARN, 'combine-results-both-null', 'Both text and vision results are null. Returning empty structure.');
+        logStreamer.logStep('unknown', 'combine_results_both_null', 'Both text and vision results are null, returning empty structure');
         const emptyField = (rationale: string) => this.createExtractedField(null, 0, rationale, 'fallback');
         return {
             propertyAddress: emptyField('No data from text or vision'),
@@ -599,10 +861,21 @@ If a field is not found or unclear, use null. For numeric fields, return only th
             lineItems: this.createExtractedField([], 0, 'No data from text or vision', 'fallback'),
         };
     }
-    if (!textResults) return visionResults!;
-    if (!visionResults) return textResults!;
+    if (!textResults) {
+      logStreamer.logDebug('unknown', 'combine_results_vision_only', 'Using vision results only');
+      return visionResults!;
+    }
+    if (!visionResults) {
+      logStreamer.logDebug('unknown', 'combine_results_text_only', 'Using text results only');
+      return textResults!;
+    }
     
-    return {
+    logStreamer.logDebug('unknown', 'combine_results_hybrid', 'Combining text and vision results', {
+      textOverallConfidence: this.getOverallConfidence(textResults),
+      visionOverallConfidence: this.getOverallConfidence(visionResults)
+    });
+    
+    const result = {
       propertyAddress: this.selectBestField(textResults.propertyAddress, visionResults.propertyAddress),
       claimNumber: this.selectBestField(textResults.claimNumber, visionResults.claimNumber),
       insuranceCarrier: this.selectBestField(textResults.insuranceCarrier, visionResults.insuranceCarrier),
@@ -613,7 +886,13 @@ If a field is not found or unclear, use null. For numeric fields, return only th
       lineItems: (textQuality > 0.6 && textResults.lineItems.value.length > 0) || visionResults.lineItems.value.length === 0 
                   ? { ...textResults.lineItems, source: 'hybrid' as const } 
                   : { ...visionResults.lineItems, source: 'hybrid' as const }
-    }
+    };
+    
+    logStreamer.logDebug('unknown', 'combine_extraction_results_complete', 'EstimateExtractorAgent.combineExtractionResults() completed', {
+      finalConfidence: this.getOverallConfidence(result)
+    });
+    
+    return result;
   }
 
   public selectBestField<T>(
