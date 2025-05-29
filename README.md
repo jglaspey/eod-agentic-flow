@@ -1,155 +1,181 @@
-# Roofing Estimate Analyzer
+# 🏠 Supplement Creation AI Agent
 
-An AI-powered application for analyzing roofing insurance estimates and generating supplement recommendations.
+An intelligent system that analyzes roofing estimates and inspection reports to automatically generate supplement recommendations using AI agents.
 
-## Quick Setup Guide
+## 🚀 Quick Start
 
 ### Prerequisites
+- Node.js 18+ and npm/yarn
+- Supabase account
+- OpenAI API key
+- Anthropic API key (optional)
 
-1. **Supabase Account**: Sign up at [supabase.com](https://supabase.com)
-2. **OpenAI API Key** (optional): Get from [platform.openai.com](https://platform.openai.com)
-3. **Anthropic API Key**: Get from [console.anthropic.com](https://console.anthropic.com)
-
-### Setup Steps
-
-#### 1. Create Environment File
-
-Create a `.env.local` file in the root directory with your actual credentials:
-
+### 1. Clone and Install
 ```bash
-# Supabase Configuration
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
-
-# AI API Keys
-OPENAI_API_KEY=sk-your_openai_key_here # optional
-ANTHROPIC_API_KEY=sk-ant-your_anthropic_key_here
-```
-
-#### 2. Set Up Database
-
-1. Go to your Supabase project dashboard
-2. Navigate to SQL Editor
-3. Copy and run the contents of `src/lib/database-schema.sql`
-4. Verify all tables are created successfully
-
-#### 3. Configure AI Settings
-
-In Supabase SQL Editor, run the contents of `setup-database.sql`:
-
-```sql
--- Clear any existing AI config data
-DELETE FROM ai_config;
-
--- Insert updated AI configurations with latest models
-INSERT INTO ai_config (step_name, provider, model, prompt, temperature, max_tokens) VALUES
-('extract_estimate_address', 'anthropic', 'claude-sonnet-4-20250514', 'Extract the property address from this insurance estimate document. Look for the property address, which may be different from the insured''s mailing address. Return only the full property address as a single string.', 0.1, 200),
-('extract_estimate_claim', 'anthropic', 'claude-sonnet-4-20250514', 'Extract the claim number from this insurance estimate document. Look for "Claim Number" or similar labels. The claim number may span multiple lines. Return the complete claim number only, joining any parts with hyphens if split across lines.', 0.1, 100),
-('extract_estimate_carrier', 'anthropic', 'claude-sonnet-4-20250514', 'Extract the insurance carrier/company name from this insurance estimate document. Return only the company name.', 0.1, 100),
-('extract_estimate_rcv', 'anthropic', 'claude-sonnet-4-20250514', 'Extract the total RCV (Replacement Cost Value) amount from this insurance estimate document. Return only the numeric value without currency symbols or commas.', 0.1, 100),
-('extract_roof_measurements', 'anthropic', 'claude-sonnet-4-20250514', 'Extract all roof measurements from this inspection report including: total roof area in squares, eave length, rake length, ridge/hip length, valley length, number of stories, and predominant pitch. Return the values in a structured format with clear labels.', 0.3, 500),
-('analyze_line_items', 'anthropic', 'claude-sonnet-4-20250514', 'Analyze the provided estimate and roof data to identify missing items or discrepancies. Focus on standard roofing components like drip edge, gutter apron, ice & water barrier, and other items that should be included based on the roof measurements. Return a structured analysis.', 0.5, 1000);
-```
-
-#### 4. Install Dependencies & Run
-
-```bash
+git clone <your-repo>
+cd supplement-creation
 npm install
+```
+
+### 2. Environment Setup
+Create `.env.local`:
+```bash
+# Database
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+
+# AI APIs
+OPENAI_API_KEY=your_openai_key
+ANTHROPIC_API_KEY=your_anthropic_key
+
+# App
+NEXTAUTH_SECRET=your_nextauth_secret
+NEXTAUTH_URL=http://localhost:3000
+```
+
+### 3. Database Setup
+Run the SQL from `setup-database.sql` in your Supabase SQL editor to create:
+- `jobs` table for job tracking
+- `job_data` table for extracted data storage
+- `ai_config` table for AI prompt configurations
+
+### 4. Run Development Server
+```bash
 npm run dev
 ```
+Visit `http://localhost:3000`
 
-Visit http://localhost:3000
+## 📋 How It Works
 
-## How It Works
+### Agent Workflow
+1. **File Upload**: User uploads estimate PDF and roof report PDF
+2. **OrchestrationAgent**: Coordinates the entire process
+3. **EstimateExtractorAgent**: Extracts line items, totals, and metadata from estimates
+4. **RoofReportExtractorAgent**: Extracts roof measurements and damage details
+5. **SupplementGeneratorAgent**: Analyzes discrepancies and suggests supplements using Xactimate codes
 
-1. **Upload Files**: Upload both the insurance estimate PDF and roof report PDF
-2. **Processing**: The system extracts data from both PDFs using AI
-3. **Analysis**: It compares the data and identifies missing items
-4. **Results**: View the extracted information and generated supplement items
+### Key Features
+- **Real-time Logging**: Live job progress via Server-Sent Events
+- **Xactimate Code Integration**: Uses standardized roofing codes from `codes.md`
+- **Discrepancy Analysis**: Compares estimate vs. inspection data
+- **Structured Output**: Generates actionable supplement recommendations
 
-## Recent Improvements
+## 🚀 Deployment
 
-### Multi-line Claim Number Support
-The system now properly handles claim numbers that span multiple lines in the PDF. For example:
+### Vercel Deployment
+1. **Connect Repository**:
+   ```bash
+   vercel --prod
+   ```
+
+2. **Environment Variables**:
+   Add all `.env.local` variables in Vercel dashboard
+
+3. **Build Settings**:
+   - Framework: Next.js
+   - Build Command: `npm run build`
+   - Output Directory: `.next`
+
+### Supabase Configuration
+- Ensure RLS policies are configured for production
+- Update CORS settings for your Vercel domain
+- Verify service role key permissions
+
+### Post-Deployment Checklist
+- [ ] Test file upload functionality
+- [ ] Verify AI API connections
+- [ ] Check database connectivity
+- [ ] Test real-time logging
+- [ ] Validate supplement generation
+
+## 🔧 Development
+
+### Project Structure
 ```
-Claim Number: 1354565-242889-
-             014101
+src/
+├── app/                 # Next.js app router
+│   ├── api/            # API routes
+│   └── (dashboard)/    # Dashboard pages
+├── agents/             # AI agent implementations
+├── components/         # React components
+├── lib/               # Utilities and services
+└── types/             # TypeScript definitions
 ```
-Will be correctly extracted as: `1354565-242889-014101`
 
-### Better Error Handling
-- Graceful fallback when AI APIs are not configured
-- Clear error messages for missing environment variables
-- UUID validation to prevent database errors
+### Key Files
+- `src/agents/OrchestrationAgent.ts` - Main workflow coordinator
+- `src/lib/ai-orchestrator.ts` - AI interaction layer
+- `src/lib/log-streamer.ts` - Real-time logging system
+- `codes.md` - Xactimate code reference
 
-### AI Provider Flexibility
-- Defaults to Anthropic Claude Sonnet 4 for all extraction and analysis
-- Supports OpenAI GPT models if `OPENAI_API_KEY` is provided and `ai_config` is updated
-- Falls back to regex-based extraction when no AI provider is available
-- Configurable prompts via database
+### Adding New Agents
+1. Extend the `Agent` base class
+2. Implement required `act()` method
+3. Add to `OrchestrationAgent` workflow
+4. Update type definitions in `src/agents/types.ts`
 
-## Troubleshooting
+## 🐛 Troubleshooting
 
 ### Common Issues
 
-1. **"Cannot read properties of undefined (reading 'create')"**
-   - Your API keys are not set properly in `.env.local`
-   - Replace placeholder values with actual API keys
+**Build Failures**:
+- Check TypeScript errors: `npm run type-check`
+- Verify all environment variables are set
+- Ensure Supabase connection is working
 
-2. **UUID Errors ("invalid input syntax for type uuid")**
-   - Use the job ID returned from the upload process
-   - Don't use test strings like "your-job-id"
+**AI API Errors**:
+- Verify API keys are correct and have sufficient credits
+- Check rate limits and quotas
+- Review AI config table in Supabase
 
-3. **Missing Data in Results**
-   - Check that AI API keys are valid
-   - Verify PDF quality and format
-   - Review AI prompts in `ai_config` table
+**File Upload Issues**:
+- Confirm file size limits (default 10MB)
+- Check PDF processing dependencies
+- Verify Supabase storage bucket permissions
 
-4. **Claim Number Issues**
-   - The improved regex now handles multi-line claim numbers
-   - Numbers are joined with hyphens when split across lines
+**Real-time Logging Not Working**:
+- Ensure SSE endpoint is accessible
+- Check browser network tab for connection issues
+- Verify job ID is being passed correctly
 
-### Fallback Mode
-When AI APIs are not available, the system uses regex-based extraction:
-- Basic property address detection
-- Claim number extraction (including multi-line)
-- Insurance carrier identification
-- RCV amount parsing
+### Performance Optimization
+- Monitor AI API usage and costs
+- Implement caching for repeated extractions
+- Consider batch processing for multiple files
+- Use Vercel Edge Functions for faster response times
 
-## Current Limitations
+## 📊 Monitoring
 
-1. **PDF Format**: Only processes PDF files
-2. **File Size**: Maximum 10MB per file
-3. **Processing Time**: 10-30 seconds depending on file size
-4. **AI Accuracy**: Results depend on PDF quality and format
+### Logging Levels
+- `info`: General process steps
+- `success`: Successful completions
+- `error`: Failures and exceptions
+- `debug`: Detailed debugging info
+- `ai-prompt`: AI prompts sent
+- `ai-response`: AI responses received
 
-## Testing
+### Key Metrics to Track
+- Job completion rates
+- AI API response times
+- Extraction accuracy
+- User satisfaction with supplements
 
-To quickly test with sample data:
-1. Upload any two PDF files
-2. The system will process them (or use fallback extraction)
-3. View results on the results page
+## 🔐 Security
 
-## Architecture
+- All file uploads are processed server-side
+- AI API keys are stored securely in environment variables
+- Database access uses Row Level Security (RLS)
+- No sensitive data is logged or cached client-side
 
-- **Frontend**: Next.js 14 with App Router
-- **Styling**: Tailwind CSS
-- **Database**: Supabase (PostgreSQL)
-- **AI**: Anthropic Claude Sonnet 4 (default) / optional OpenAI GPT models
-- **PDF Processing**: pdf-parse library
+## 🤝 Contributing
 
-## Future Enhancements
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
 
-1. **Export Functionality**: Generate Xactimate-compatible reports
-2. **Batch Processing**: Handle multiple estimates at once
-3. **Learning System**: Improve accuracy based on user feedback
-4. **Additional Integrations**: Connect with estimating software
-5. **Advanced Analytics**: Historical data analysis and trends
+## 📄 License
 
-## Support
-
-For issues or questions:
-1. Check the troubleshooting section above
-2. Review the error logs in browser console
-3. Verify your environment configuration
-4. Ensure database schema is up to date
+[Your License Here]
