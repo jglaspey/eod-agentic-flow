@@ -1,21 +1,24 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
 
 interface UploadedFiles {
   estimate: File | null
   roofReport: File | null
 }
 
-export default function UploadInterface() {
+interface UploadInterfaceProps {
+  onJobCreated: (jobData: { id: string; status: 'processing'; created_at: string }) => void
+}
+
+export default function UploadInterface({ onJobCreated }: UploadInterfaceProps) {
   const [files, setFiles] = useState<UploadedFiles>({
     estimate: null,
     roofReport: null
   })
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const router = useRouter()
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   const validateFile = (file: File): boolean => {
     if (file.type !== 'application/pdf') {
@@ -35,6 +38,7 @@ export default function UploadInterface() {
       if (file && validateFile(file)) {
         setFiles(prev => ({ ...prev, [type]: file }))
         setError(null)
+        setSuccessMessage(null)
       }
     }
   }, [])
@@ -53,6 +57,7 @@ export default function UploadInterface() {
       if (file && validateFile(file)) {
         setFiles(prev => ({ ...prev, [type]: file }))
         setError(null)
+        setSuccessMessage(null)
       }
     }
   }, [])
@@ -65,6 +70,7 @@ export default function UploadInterface() {
 
     setIsProcessing(true)
     setError(null)
+    setSuccessMessage(null)
 
     try {
       const formData = new FormData()
@@ -81,7 +87,21 @@ export default function UploadInterface() {
       }
 
       const result = await response.json()
-      router.push(`/results/${result.jobId}`)
+      
+      // Call the callback to add the job to the dashboard
+      onJobCreated({
+        id: result.jobId,
+        status: 'processing',
+        created_at: new Date().toISOString()
+      })
+
+      // Clear the form and show success message
+      setFiles({ estimate: null, roofReport: null })
+      setSuccessMessage(`Job ${result.jobId} created successfully! Processing has started and will appear in the list below.`)
+      
+      // Clear success message after 5 seconds
+      setTimeout(() => setSuccessMessage(null), 5000)
+      
     } catch (err) {
       setError('Processing failed. Please try again.')
     } finally {
@@ -103,6 +123,12 @@ export default function UploadInterface() {
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-md p-4">
           <p className="text-red-800">{error}</p>
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="bg-green-50 border border-green-200 rounded-md p-4">
+          <p className="text-green-800">{successMessage}</p>
         </div>
       )}
 
@@ -198,11 +224,8 @@ export default function UploadInterface() {
 
       {isProcessing && (
         <div className="text-center">
-          <div className="inline-flex items-center px-4 py-2 text-sm text-blue-600">
-            <svg className="animate-spin -ml-1 mr-3 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
+          <div className="inline-flex items-center px-4 py-2 font-medium text-blue-600">
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
             Processing your documents...
           </div>
         </div>
