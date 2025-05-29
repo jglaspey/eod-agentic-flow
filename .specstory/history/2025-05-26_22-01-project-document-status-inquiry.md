@@ -2228,3 +2228,192 @@ _**Assistant**_
 
 ---
 
+Okay, good to know the logs are working again after a refresh, even if the connection is a bit finicky. We can definitely look into stabilizing that EventSource connection later, but I agree, let's lock in these wins with a commit since the core functionality and the jobs table are in a good state.
+
+I'll prepare the commit with a message summarizing the recent work on tracing and log display.
+
+
+
+---
+
+Model provided invalid arguments to terminal tool.
+
+---
+
+Whoops, my apologies again for the newlines in the commit message. I'll clean that up and try again.
+
+
+
+---
+
+```bash
+git add . && git commit -m 'feat: Implement detailed agent tracing and log display. Enhanced logStreamer to support arbitrary data payloads for tracing. Instrumented OrchestrationAgent and EstimateExtractorAgent to log detailed input and output data. Updated LogTerminal.tsx to display these trace data payloads, improving debuggability. Removed redundant high-level orchestration logs from process/route.ts as agents now provide more detailed trace logs.'
+```
+
+```
+[feature/agentic-workflow a1831aa] feat: Implement detailed agent tracing and lo
+g display. Enhanced logStream
+er to support arbitrary data payloads for tracing. Instrumented OrchestrationAge
+nt and EstimateExtractorAgent to log detailed input and output data. Updated Log
+Terminal.tsx to display these trace data payloads, improving debuggability. Remo
+ved redundant high-level orchestration logs from process/route.ts as agents now
+provide more detailed trace logs.
+                                     16 files changed, 1999 insertions(+), 154 d
+eletions(-)
+ create mode 100644 components.json
+ create mode 100644 src/components/PreviousJobsDashboard.tsx
+ create mode 100644 src/components/ui/badge.tsx
+ create mode 100644 src/components/ui/table.tsx
+ create mode 100644 src/lib/utils.ts
+
+```
+
+---
+
+
+
+---
+
+_**User**_
+
+continue
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+Excellent, the commit is successful.
+
+Now, let's address the "Connection interrupted. Attempting to reconnect..." issue you're seeing with the logs, which requires a manual refresh to resolve. This usually points to the EventSource connection not re-establishing properly after an interruption, or the server-side stream having issues, especially in a development environment with hot reloading.
+
+I'll start by re-examining the server-side logic for the log streaming endpoint: `src/app/api/jobs/[id]/logs/route.ts`. I want to see how it handles the stream lifecycle and potential errors.
+
+
+
+---
+
+Read file: src/app/api/jobs/[id]/logs/route.ts
+
+---
+
+The server-side code for `src/app/api/jobs/[id]/logs/route.ts` looks generally robust. It uses an interval to check for new logs and sends them to the client. It also has logic to close the stream when the job is no longer 'processing' or if an error occurs. The `retry: 1000\n` message is also correctly sent, which should instruct the client to attempt reconnection after 1 second if the connection drops.
+
+Given this, the issue might be more nuanced:
+
+1.  **Hot Reloading Interference**: Next.js hot reloading in development can sometimes aggressively terminate and restart server-side processes, including these long-lived stream connections. When the `EventSource` tries to reconnect, it might hit a moment where the server isn't fully ready or the old connection hasn't been properly cleaned up.
+2.  **Multiple `controller.close()` calls or timing**: While there's an `isClosed` flag, there might be edge cases where the interval tries to operate on a closing/closed controller, or the cleanup isn't happening as cleanly as expected, especially if errors occur.
+3.  **Supabase Client Re-initialization**: The `getSupabaseClient()` call at the top is fine, but if the underlying Supabase client instance were to be frequently re-initialized or invalidated during hot reloads, it could affect the `supabase.from('jobs').select('status')` check within the interval, potentially leading to premature stream closures or errors. (Though, given `logStreamer` is a singleton, this is less likely the direct cause for `getLogs`).
+
+One thing we can try is to make the cleanup within the `setInterval` a bit more defensive and ensure that `logStreamer.clearLogs(params.id)` is only called once the controller is definitively closed.
+
+Let's refine the stream closing logic. I'll also add a log when the `cancel()` function is called by the client disconnecting, and when the server proactively closes the stream.
+
+
+
+---
+
+_**User**_
+
+everything is working, can you make sure we're committed and up-to-date?
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+Okay, great to hear everything is working to your satisfaction!
+
+Let's check the status of your repository to see if there are any outstanding changes that need to be committed. This will tell us if we're fully up-to-date with what you consider the "working" state.
+
+I'll run `git status` to see what's pending.
+
+
+
+---
+
+```bash
+git status --porcelain
+```
+
+```
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation % git status --porcelain
+ M .specstory/history/2025-05-26_22-01-project-document-status-inquiry.md
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation %
+```
+
+---
+
+It looks like there's one modified file: `.specstory/history/2025-05-26_22-01-project-document-status-inquiry.md`.
+
+This seems to be a file related to the "Specstory" tool or process you might be using, likely tracking history or changes.
+
+Since you mentioned everything is working, would you like to add this file and commit it? We can use a generic commit message like "docs: Update Specstory history" or something more specific if you have a preference.
+
+---
+
+_**User**_
+
+ok, so something that's becoming clear is that this process is unreliable and that sometimes comes back with unfinished results. i want to make sure the orchestrator enforces the return of certain information, such as: Extracted Information
+Property Details
+Address
+
+15804 YOUNG CIR BENNINGTON NE 68007
+
+Claim Number
+
+P2405208
+
+Insurance Carrier
+
+Farmers Mutual of Nebraska - Omaha
+
+Total RCV
+
+$20,587.14
+
+Roof Measurements
+Total Area
+
+2585 squares
+
+Eave Length
+
+90 LF
+
+Rake Length
+
+160 LF
+
+Ridge/Hip Length
+
+76 LF
+
+Valley Length
+
+63 LF
+
+Stories
+
+1
+
+Pitch
+
+6
+
+all of that should be in EVERY report EVERY Time, can we enforce that?
+
+---
+
+_**Assistant**_
+
+
+
+---
+

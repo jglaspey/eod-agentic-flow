@@ -1,0 +1,53 @@
+flowchart TD
+    A[Intake Form] --> B[Collect Project Name]
+    B --> C[Upload Insurance Carrier Estimate PDF]
+    C --> D[Upload Roof Report]
+    
+    %% Diverge into two paths
+    D --> E[Insurance Estimate Analysis Path]
+    D --> F[Roof Report Analysis Path]
+    
+    %% Insurance Estimate Path
+    E --> E1[Extract Insurance Carrier]
+    E1 --> E2[Extract Claim Number]
+    E2 --> E3[Extract Date of Loss]
+    E3 --> E4[Extract Type of Loss]
+    E4 --> E5[Extract Address]
+    E5 --> E6[Extract Total RCV Amount]
+    E6 --> E7[LLM Validation of Insurance Data]
+    
+    %% Roof Report Path
+    F --> F1[Extract Address]
+    F1 --> F2[Extract Total Roof Area]
+    F2 --> F3[Extract Total Roof Facets]
+    F3 --> F4[Extract Predominant Pitch]
+    F4 --> F5[Extract Number of Stories]
+    F5 --> F6[Extract Total Ridges/Hips]
+    F6 --> F7[Extract Total Valleys]
+    F7 --> F8[Extract Total Rakes]
+    F8 --> F9[Extract Total Eaves]
+    F9 --> F10[Check for Gable Cornice Strips]
+    F10 --> F11[Check for Gable Cornice Returns]
+    F11 --> F12[Check for Kick Out Flashing Requirements]
+    F12 --> F13[LLM Validation of Roof Report Data]
+    
+    %% Compare the data from both sources
+    E7 --> G[Compare Addresses from Both Documents]
+    F13 --> G
+    
+    %% Decision point for addresses
+    G --> G1{Do Addresses Match?}
+    G1 -->|No| G2[Flag Address Mismatch in Report]
+    G1 -->|Yes| H[Calculate Required Ice & Water Barrier]
+    G2 --> H
+    
+    %% Calculations and comparisons
+    H --> I[Compare Calculated Ice & Water with Insurance Estimate]
+    I --> I1{Does IWS Match Estimate?}
+    I1 -->|No| I2[Generate Detailed IWS Calculation Note]
+    I1 -->|Yes| J[Generate Final Report]
+    I2 --> J
+    
+    %% Final output
+    J --> K[Include Text Analysis Results]
+    K --> L[Include Images from Roof Report]
