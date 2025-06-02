@@ -359,21 +359,23 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
         )}
       </div>
 
-      {/* Export Options */}
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Export Options</h2>
-        <div className="flex space-x-4">
-          <button className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors">
-            Export to Xactimate
-          </button>
-          <button className="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-md transition-colors">
-            Export to CSV
-          </button>
-          <button className="bg-gray-600 hover:bg-gray-700 text-white font-medium py-2 px-4 rounded-md transition-colors">
-            Generate Report
-          </button>
+      {/* Export Options - temporarily hidden */}
+      {false && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Export Options</h2>
+          <div className="flex space-x-4">
+            <button className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors">
+              Export to Xactimate
+            </button>
+            <button className="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-md transition-colors">
+              Export to CSV
+            </button>
+            <button className="bg-gray-600 hover:bg-gray-700 text-white font-medium py-2 px-4 rounded-md transition-colors">
+              Generate Report
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
