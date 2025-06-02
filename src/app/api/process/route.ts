@@ -103,8 +103,13 @@ export async function POST(request: NextRequest) {
         .from('jobs')
         .update({ status: 'failed', error_message: error.message })
         .eq('id', jobId)
-        .then(() => console.log(`[${jobId}] Updated job status to failed`))
-        .catch(dbErr => console.error(`[${jobId}] Failed to update job status:`, dbErr));
+        .then(({ error: dbErr }) => {
+          if (dbErr) {
+            console.error(`[${jobId}] Failed to update job status:`, dbErr);
+          } else {
+            console.log(`[${jobId}] Updated job status to failed`);
+          }
+        });
     })
 
     return NextResponse.json({ jobId })
