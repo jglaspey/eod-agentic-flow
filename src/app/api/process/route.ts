@@ -83,8 +83,10 @@ export async function POST(request: NextRequest) {
     const testLog = logStreamer.getLogs(jobId);
     console.log(`[API] Immediate test: Job ${jobId} has ${testLog.length} logs after creation`);
 
-    // Start processing immediately (synchronously)
-    processFilesWithNewAgent(jobId, estimateFile, roofReportFile, startTime)
+    // Start processing immediately (asynchronously but without blocking the response)
+    processFilesWithNewAgent(jobId, estimateFile, roofReportFile, startTime).catch(error => {
+      console.error(`[${jobId}] Unhandled error in background processing:`, error);
+    })
 
     return NextResponse.json({ jobId })
   } catch (error) {
