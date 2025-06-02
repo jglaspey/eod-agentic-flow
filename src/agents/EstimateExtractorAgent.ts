@@ -198,16 +198,18 @@ export class EstimateExtractorAgent extends Agent {
 
       if (shouldUseVision) {
         logStreamer.logDebug(jobId, 'vision_extraction_check', 'Checking vision extraction availability', { shouldUseVision, strategy: input.strategy });
+        console.log(`[${jobId}] EstimateExtractorAgent.act: Vision processing disabled for serverless environment`);
         
-        if (await PDFToImagesTool.isAvailable() && this.visionProcessor.isAvailable()) {
+        // Disable vision processing in serverless environment to avoid Python dependency issues
+        if (false && await PDFToImagesTool.isAvailable() && this.visionProcessor.isAvailable()) {
           this.log(LogLevel.INFO, 'vision-fallback', 'Using vision models for extraction', { taskId: context.taskId })
           logStreamer.logStep(jobId, 'vision_extraction_start', 'Starting vision-based field extraction', { taskId: context.taskId });
           
           try {
             visionResults = await this.extractFieldsFromVision(input.pdfBuffer, context)
             logStreamer.logDebug(jobId, 'vision_extraction_success', 'Vision field extraction completed', { 
-              extractedFields: Object.keys(visionResults).length,
-              overallConfidence: this.getOverallConfidence(visionResults)
+              extractedFields: visionResults ? Object.keys(visionResults as object).length : 0,
+              overallConfidence: visionResults ? this.getOverallConfidence(visionResults) : 0
             });
           } catch (visionError) {
             this.log(LogLevel.WARN, 'vision-extraction-error', `Field extraction from vision failed: ${visionError}`, { taskId: context.taskId, error: visionError })
@@ -215,9 +217,10 @@ export class EstimateExtractorAgent extends Agent {
           }
         } else {
           this.log(LogLevel.WARN, 'vision-unavailable', 'Vision processing requested but tools are not available', { taskId: context.taskId })
-          logStreamer.logStep(jobId, 'vision_extraction_unavailable', 'Vision processing requested but tools are not available', { 
-            pdfToImagesAvailable: await PDFToImagesTool.isAvailable(),
-            visionProcessorAvailable: this.visionProcessor.isAvailable()
+          logStreamer.logStep(jobId, 'vision_extraction_unavailable', 'Vision processing disabled for serverless environment', { 
+            pdfToImagesAvailable: false, // Disabled for serverless
+            visionProcessorAvailable: this.visionProcessor.isAvailable(),
+            reason: 'Serverless environment - Python dependencies not available'
           });
         }
       } else {
