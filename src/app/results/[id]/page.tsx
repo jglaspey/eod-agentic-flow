@@ -5,6 +5,7 @@ import { getSupabaseClient } from '@/lib/supabase'
 import { Job, JobData, SupplementItem } from '@/types'
 import ResultsDisplay from '@/components/ResultsDisplay'
 import LogTerminal from '@/components/LogTerminal'
+import Link from 'next/link'
 
 interface ResultsPageProps {
   params: {
@@ -192,6 +193,12 @@ export default function ResultsPage({ params }: ResultsPageProps) {
       <div className="mb-4">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Analysis Results</h1>
         <p className="text-gray-600">Job ID: {params.id}</p>
+        <Link
+          href="/"
+          className="inline-block mt-2 text-blue-600 hover:underline"
+        >
+          Back to Dashboard
+        </Link>
       </div>
       {isProcessing ? (
         <LogTerminal jobId={params.id} onComplete={async () => {
