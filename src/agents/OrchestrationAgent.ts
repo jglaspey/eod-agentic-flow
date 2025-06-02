@@ -128,6 +128,7 @@ export class OrchestrationAgent extends Agent {
   }
 
   async act(input: OrchestrationInput, context: TaskContext): Promise<AgentResult<OrchestrationOutput>> {
+    console.log(`[${input.jobId}] OrchestrationAgent.act: STARTING`);
     this.log(LogLevel.INFO, 'orchestration-start', `Starting orchestration for job ${input.jobId}`, { parentTaskId: context.taskId });
     logStreamer.logStep(input.jobId, 'orchestration_start', 'OrchestrationAgent processing started', {
       input: {
@@ -151,14 +152,17 @@ export class OrchestrationAgent extends Agent {
 
     try {
       // 1. Extract from Estimate PDF
+      console.log(`[${input.jobId}] OrchestrationAgent.act: About to create EstimateExtractorAgent`);
       const estimateAgent = new EstimateExtractorAgent();
       const estimateTaskContext = { ...context, taskId: uuidv4(), jobId: input.jobId, priority: 1 };
       this.log(LogLevel.DEBUG, 'orchestration-run-estimate-agent', `Running EstimateExtractorAgent for job ${input.jobId}`, { context: estimateTaskContext });
+      console.log(`[${input.jobId}] OrchestrationAgent.act: About to call estimateAgent.execute`);
       try {
         output.estimateExtraction = await estimateAgent.execute(
             { pdfBuffer: input.estimatePdfBuffer, strategy: input.strategy || ExtractionStrategy.HYBRID, jobId: input.jobId }, 
             estimateTaskContext
         );
+        console.log(`[${input.jobId}] OrchestrationAgent.act: EstimateExtractorAgent completed successfully`);
         if (output.estimateExtraction.validation.confidence < estimateAgent.getConfig().confidenceThreshold) {
             this.log(LogLevel.WARN, 'low-estimate-confidence', `Estimate extraction confidence (${output.estimateExtraction.validation.confidence.toFixed(3)}) below threshold (${estimateAgent.getConfig().confidenceThreshold}).`, {jobId: input.jobId, agentType: this.agentType});
             output.warnings.push(`Low confidence in estimate extraction: ${output.estimateExtraction.validation.confidence.toFixed(3)}`);

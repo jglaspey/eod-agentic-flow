@@ -84,8 +84,27 @@ export async function POST(request: NextRequest) {
     console.log(`[API] Immediate test: Job ${jobId} has ${testLog.length} logs after creation`);
 
     // Start processing immediately (asynchronously but without blocking the response)
-    processFilesWithNewAgent(jobId, estimateFile, roofReportFile, startTime).catch(error => {
+    console.log(`[${jobId}] About to start processFilesWithNewAgent`);
+    
+    // Add a timeout to detect hanging
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Processing timeout after 10 minutes')), 600000);
+    });
+    
+    Promise.race([
+      processFilesWithNewAgent(jobId, estimateFile, roofReportFile, startTime),
+      timeoutPromise
+    ]).catch(error => {
       console.error(`[${jobId}] Unhandled error in background processing:`, error);
+      console.error(`[${jobId}] Error stack:`, error.stack);
+      
+      // Update job status to failed on timeout/error
+      getSupabaseClient()
+        .from('jobs')
+        .update({ status: 'failed', error_message: error.message })
+        .eq('id', jobId)
+        .then(() => console.log(`[${jobId}] Updated job status to failed`))
+        .catch(dbErr => console.error(`[${jobId}] Failed to update job status:`, dbErr));
     })
 
     return NextResponse.json({ jobId })
@@ -104,6 +123,7 @@ async function processFilesWithNewAgent(
   roofReportFile: File | null,
   startTime: number
 ) {
+  console.log(`[${jobId}] processFilesWithNewAgent: ENTERED function`);
   try {
     console.log(`[${jobId}] processFilesWithNewAgent: Started.`);
     logStreamer.logStep(jobId, 'job-started', 'Job processing started with new agent system');
