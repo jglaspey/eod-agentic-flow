@@ -203,16 +203,12 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
             {jobs.map((job) => (
               <TableRow key={job.id} className="hover:bg-muted/50">
                 <TableCell className="font-medium">
-                  {job.status === 'processing' ? (
-                    <span className="text-gray-500 flex items-center">
+                  <Link href={`/results/${job.id}`} className="hover:underline text-blue-600 flex items-center">
+                    {job.status === 'processing' && (
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
-                      {job.property_address || 'Processing...'}
-                    </span>
-                  ) : (
-                    <Link href={`/results/${job.id}`} className="hover:underline text-blue-600">
-                      {job.property_address || 'Not Available'}
-                    </Link>
-                  )}
+                    )}
+                    {job.property_address || (job.status === 'processing' ? 'Processing...' : 'Not Available')}
+                  </Link>
                 </TableCell>
                 <TableCell>{job.insurance_carrier || (job.status === 'processing' ? 'Processing...' : 'Not Available')}</TableCell>
                 <TableCell>
