@@ -338,20 +338,32 @@ export class EstimateExtractorAgent extends Agent {
       'extract_estimate_date_of_loss'
     ])
 
-    // Extract fields in parallel
-    logStreamer.logDebug(jobId, 'parallel_field_extraction_start', 'Starting parallel field extraction', { fieldCount: 7 });
-    console.log(`[${jobId}] EstimateExtractorAgent.extractFieldsFromText: About to start Promise.all for field extraction`);
+    // Extract fields sequentially to avoid rate limits and timeouts
+    logStreamer.logDebug(jobId, 'sequential_field_extraction_start', 'Starting sequential field extraction', { fieldCount: 7 });
+    console.log(`[${jobId}] EstimateExtractorAgent.extractFieldsFromText: About to start sequential field extraction`);
     
-    const [address, claimNumber, carrier, rcv, acv, deductible, dol] = await Promise.all([
-      this.extractSingleField('propertyAddress', text, fieldConfigs.extract_estimate_address, context),
-      this.extractSingleField('claimNumber', text, fieldConfigs.extract_estimate_claim, context),
-      this.extractSingleField('insuranceCarrier', text, fieldConfigs.extract_estimate_carrier, context),
-      this.extractSingleField('totalRCV', text, fieldConfigs.extract_estimate_rcv, context),
-      this.extractSingleField('totalACV', text, fieldConfigs.extract_estimate_acv, context),
-      this.extractSingleField('deductible', text, fieldConfigs.extract_estimate_deductible, context),
-      this.extractSingleField('dateOfLoss', text, fieldConfigs.extract_estimate_date_of_loss, context)
-    ])
-    console.log(`[${jobId}] EstimateExtractorAgent.extractFieldsFromText: Promise.all completed successfully`);
+    const address = await this.extractSingleField('propertyAddress', text, fieldConfigs.extract_estimate_address, context);
+    console.log(`[${jobId}] Field 1/7 completed: propertyAddress`);
+    
+    const claimNumber = await this.extractSingleField('claimNumber', text, fieldConfigs.extract_estimate_claim, context);
+    console.log(`[${jobId}] Field 2/7 completed: claimNumber`);
+    
+    const carrier = await this.extractSingleField('insuranceCarrier', text, fieldConfigs.extract_estimate_carrier, context);
+    console.log(`[${jobId}] Field 3/7 completed: insuranceCarrier`);
+    
+    const rcv = await this.extractSingleField('totalRCV', text, fieldConfigs.extract_estimate_rcv, context);
+    console.log(`[${jobId}] Field 4/7 completed: totalRCV`);
+    
+    const acv = await this.extractSingleField('totalACV', text, fieldConfigs.extract_estimate_acv, context);
+    console.log(`[${jobId}] Field 5/7 completed: totalACV`);
+    
+    const deductible = await this.extractSingleField('deductible', text, fieldConfigs.extract_estimate_deductible, context);
+    console.log(`[${jobId}] Field 6/7 completed: deductible`);
+    
+    const dol = await this.extractSingleField('dateOfLoss', text, fieldConfigs.extract_estimate_date_of_loss, context);
+    console.log(`[${jobId}] Field 7/7 completed: dateOfLoss`);
+    
+    console.log(`[${jobId}] EstimateExtractorAgent.extractFieldsFromText: Sequential field extraction completed successfully`);
     
     logStreamer.logDebug(jobId, 'parallel_field_extraction_complete', 'Parallel field extraction completed', {
       extractedValues: {
