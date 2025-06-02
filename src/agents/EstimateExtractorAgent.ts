@@ -125,6 +125,7 @@ export class EstimateExtractorAgent extends Agent {
 
   async act(input: EstimateExtractionInput, context: TaskContext): Promise<AgentResult<EstimateFieldExtractions>> {
     const jobId = input.jobId || context.jobId;
+    console.log(`[${jobId}] EstimateExtractorAgent.act: STARTING`);
 
     this.log(LogLevel.INFO, 'estimate_extraction_start', `EstimateExtractorAgent processing started for job ${jobId}`, { strategy: input.strategy });
     logStreamer.logStep(jobId, 'estimate_extraction_start', 'EstimateExtractorAgent processing started', { strategy: input.strategy });
@@ -145,8 +146,10 @@ export class EstimateExtractorAgent extends Agent {
 
       this.log(LogLevel.DEBUG, 'text-extraction', 'Extracting text from PDF', { taskId: context.taskId })
       logStreamer.logDebug(jobId, 'pdf_text_extraction_start', 'Starting PDF text extraction', { taskId: context.taskId });
+      console.log(`[${jobId}] EstimateExtractorAgent.act: About to call PDFProcessor.extractText`);
       
       textExtractionResult = await PDFProcessor.extractText(input.pdfBuffer)
+      console.log(`[${jobId}] EstimateExtractorAgent.act: PDFProcessor.extractText completed, text length: ${textExtractionResult.length}`);
       textConfidence = this.calculateTextQuality(textExtractionResult)
       
       logStreamer.logDebug(jobId, 'pdf_text_extraction_complete', 'PDF text extraction completed', { 
@@ -168,7 +171,9 @@ export class EstimateExtractorAgent extends Agent {
         logStreamer.logDebug(jobId, 'text_field_extraction_start', 'Starting field extraction from text', { textQuality: textConfidence, strategy: input.strategy });
         
         try {
+          console.log(`[${jobId}] EstimateExtractorAgent.act: About to call extractFieldsFromText`);
           textResults = await this.extractFieldsFromText(textExtractionResult, context)
+          console.log(`[${jobId}] EstimateExtractorAgent.act: extractFieldsFromText completed successfully`);
           logStreamer.logDebug(jobId, 'text_field_extraction_success', 'Field extraction from text completed', { 
             extractedFields: Object.keys(textResults).length,
             overallConfidence: this.getOverallConfidence(textResults)
@@ -335,6 +340,7 @@ export class EstimateExtractorAgent extends Agent {
 
     // Extract fields in parallel
     logStreamer.logDebug(jobId, 'parallel_field_extraction_start', 'Starting parallel field extraction', { fieldCount: 7 });
+    console.log(`[${jobId}] EstimateExtractorAgent.extractFieldsFromText: About to start Promise.all for field extraction`);
     
     const [address, claimNumber, carrier, rcv, acv, deductible, dol] = await Promise.all([
       this.extractSingleField('propertyAddress', text, fieldConfigs.extract_estimate_address, context),
@@ -345,6 +351,7 @@ export class EstimateExtractorAgent extends Agent {
       this.extractSingleField('deductible', text, fieldConfigs.extract_estimate_deductible, context),
       this.extractSingleField('dateOfLoss', text, fieldConfigs.extract_estimate_date_of_loss, context)
     ])
+    console.log(`[${jobId}] EstimateExtractorAgent.extractFieldsFromText: Promise.all completed successfully`);
     
     logStreamer.logDebug(jobId, 'parallel_field_extraction_complete', 'Parallel field extraction completed', {
       extractedValues: {
