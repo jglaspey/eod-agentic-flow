@@ -143,7 +143,7 @@ export default function LogTerminal({ jobId, onComplete, readonly }: LogTerminal
             )}
           </div>
         ))}
-        {logs.length === 0 && <div className="text-gray-400">Waiting for logs...</div>}
+        {logs.length === 0 && <div className="text-gray-400">Loading: This can take about a minute - please be patient</div>}
       </div>
     </div>
   )

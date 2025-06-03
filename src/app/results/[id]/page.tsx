@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { notFound } from 'next/navigation'
+import Link from 'next/link'
 import { getSupabaseClient } from '@/lib/supabase'
 import { Job, JobData, SupplementItem } from '@/types'
 import ResultsDisplay from '@/components/ResultsDisplay'
@@ -184,12 +185,18 @@ export default function ResultsPage({ params }: ResultsPageProps) {
   }
 
   if (!jobData) {
-    return <div className="p-4">Loading...</div>
+    return <div className="p-4">Loading: This can take about a minute - please be patient</div>
   }
 
   return (
     <div className="max-w-6xl mx-auto">
       <div className="mb-4">
+        <Link 
+          href="/" 
+          className="inline-flex items-center px-4 py-2 mb-4 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
+        >
+          ← Back to Dashboard
+        </Link>
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Analysis Results</h1>
         <p className="text-gray-600">Job ID: {params.id}</p>
       </div>
