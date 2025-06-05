@@ -50,8 +50,8 @@ export class RoofReportExtractorAgent extends Agent {
       name: 'RoofReportExtractorAgent',
       version: '1.0.0',
       capabilities: ['roof_measurement_extraction', 'pdf_parsing', 'vision_analysis', 'data_normalization'],
-      defaultTimeout: 180000, // 3 minutes
-      maxRetries: 2,
+      defaultTimeout: 15000, // 15 seconds - optimized for serverless
+      maxRetries: 1, // Reduced for speed
       confidenceThreshold: 0.7,
       tools: ['PDFProcessor', 'VisionModelProcessor', 'PDFToImagesTool']
     };

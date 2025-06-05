@@ -42,8 +42,8 @@ export class EstimateExtractorAgent extends Agent {
       name: 'EstimateExtractorAgent',
       version: '1.0.0',
       capabilities: ['text_extraction', 'vision_processing', 'field_validation'],
-      defaultTimeout: 60000,
-      maxRetries: 2,
+      defaultTimeout: 15000, // Reduced from 60s to 15s for serverless
+      maxRetries: 1, // Reduced from 2 to 1 for speed
       confidenceThreshold: 0.7,
       tools: ['pdf_processor', 'pdf_to_images', 'vision_models']
     }

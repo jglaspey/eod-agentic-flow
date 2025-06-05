@@ -48,7 +48,7 @@ export class OrchestrationAgent extends Agent {
       name: 'OrchestrationAgent',
       version: '1.0.0',
       capabilities: ['workflow_management', 'task_distribution', 'result_aggregation', 'error_handling'],
-      defaultTimeout: 300000, // 5 minutes for the entire orchestration process
+      defaultTimeout: 75000, // 75 seconds - under Vercel's 90s limit
       maxRetries: 0, // Orchestration itself usually shouldn't retry; sub-agents handle retries
       confidenceThreshold: 0.9, // High confidence required for the overall orchestration to be considered successful
       tools: ['agent_executor'] // Conceptual tool for running other agents
@@ -122,7 +122,7 @@ export class OrchestrationAgent extends Agent {
     return {
       tasks,
       dependencies,
-      estimatedDuration: 240000, // 4 minutes, accounting for multiple agent runs
+      estimatedDuration: 70000, // 70 seconds - optimized for serverless
       confidence: 0.95
     };
   }

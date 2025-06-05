@@ -38,8 +38,8 @@ export class DiscrepancyAnalysisAgent extends Agent {
       name: 'DiscrepancyAnalysisAgent',
       version: '1.0.0',
       capabilities: ['data_comparison', 'consistency_checking', 'ai_summarization'],
-      defaultTimeout: 45000, // 45 seconds
-      maxRetries: 2,
+      defaultTimeout: 15000, // 15 seconds - optimized for serverless
+      maxRetries: 1, // Reduced for speed
       confidenceThreshold: 0.65,
       tools: [] // May use specialized comparison tools later
     };

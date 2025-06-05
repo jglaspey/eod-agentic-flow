@@ -83,40 +83,23 @@ export async function POST(request: NextRequest) {
     const testLog = logStreamer.getLogs(jobId);
     console.log(`[API] Immediate test: Job ${jobId} has ${testLog.length} logs after creation`);
 
-    // Return response immediately, then start processing in background
-    const response = NextResponse.json({ jobId });
+    // Process synchronously to avoid serverless timeout issues
+    console.log(`[${jobId}] Starting synchronous processing to avoid timeout`);
     
-    // Start processing asynchronously after response is prepared
-    console.log(`[${jobId}] About to start processFilesWithNewAgent`);
-    setTimeout(() => {
-      // Add a timeout to detect hanging
-      const timeoutPromise = new Promise<void>((_, reject) => {
-        setTimeout(() => reject(new Error('Processing timeout after 10 minutes')), 600000);
-      });
+    try {
+      await processFilesWithNewAgent(jobId, estimateFile, roofReportFile, startTime);
+      console.log(`[${jobId}] Processing completed successfully`);
+    } catch (error) {
+      console.error(`[${jobId}] Processing failed:`, error);
       
-      Promise.race([
-        processFilesWithNewAgent(jobId, estimateFile, roofReportFile, startTime),
-        timeoutPromise
-      ]).catch(error => {
-        console.error(`[${jobId}] Unhandled error in background processing:`, error);
-        console.error(`[${jobId}] Error stack:`, error.stack);
-        
-        // Update job status to failed on timeout/error
-        getSupabaseClient()
-          .from('jobs')
-          .update({ status: 'failed', error_message: error.message })
-          .eq('id', jobId)
-          .then(({ error: dbErr }) => {
-            if (dbErr) {
-              console.error(`[${jobId}] Failed to update job status:`, dbErr);
-            } else {
-              console.log(`[${jobId}] Updated job status to failed`);
-            }
-          });
-      });
-    }, 0);
+      // Update job status to failed on error
+      await getSupabaseClient()
+        .from('jobs')
+        .update({ status: 'failed', error_message: error instanceof Error ? error.message : 'Processing failed' })
+        .eq('id', jobId);
+    }
 
-    return response;
+    return NextResponse.json({ jobId });
   } catch (error) {
     console.error('API error in POST /api/process:', error)
     return NextResponse.json(

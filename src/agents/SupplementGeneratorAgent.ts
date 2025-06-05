@@ -57,7 +57,7 @@ export class SupplementGeneratorAgent extends Agent {
       name: 'SupplementGeneratorAgent',
       version: '1.0.0',
       capabilities: ['supplement_generation', 'rule_based_suggestions', 'ai_driven_itemization'],
-      defaultTimeout: 60000, // 60 seconds for potentially complex generation
+      defaultTimeout: 15000, // 15 seconds - optimized for serverless
       maxRetries: 1,
       confidenceThreshold: 0.60, // Slightly lower, as supplements can be subjective and reviewed
       tools: []

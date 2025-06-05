@@ -44,7 +44,7 @@ export class DiscrepancyAnalyzerAgent extends Agent {
       name: 'DiscrepancyAnalyzerAgent',
       version: '1.0.0',
       capabilities: ['cross_document_validation', 'rule_based_analysis', 'discrepancy_detection'],
-      defaultTimeout: 45000, // 45 seconds
+      defaultTimeout: 15000, // 15 seconds - optimized for serverless
       maxRetries: 1,
       confidenceThreshold: 0.6, // Confidence in the analysis itself
       tools: ['supplement_rule_engine'] // Added rule engine as a conceptual tool
