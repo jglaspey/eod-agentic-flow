@@ -263,8 +263,8 @@ export enum JobStatus {
   PENDING = 'PENDING',
   IN_PROGRESS = 'IN_PROGRESS',
   COMPLETED = 'COMPLETED',
-  FAILED = 'FAILED',
-  FAILED_PARTIAL = 'FAILED_PARTIAL', // Some parts succeeded, but critical failures elsewhere
+  FAILED = 'FAILED', // Only for catastrophic failures with no estimate data extracted
+  FAILED_PARTIAL = 'FAILED_PARTIAL', // Has estimate data but truly critical errors (rare, treated as completed in DB)
   CANCELLED = 'CANCELLED'
 }
 
