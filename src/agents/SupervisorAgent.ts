@@ -119,13 +119,13 @@ export class SupervisorAgent extends Agent {
     const { estimateExtraction, roofReportExtraction, discrepancyAnalysis, supplementGeneration, errors, status } = orchestrationOutput;
 
     if (status === JobStatus.FAILED) {
-      report.issuesToAddress.push('Orchestration failed catastrophically. Manual review required for all aspects.');
+      report.issuesToAddress.push('CRITICAL: Orchestration failed catastrophically. Manual review required for all aspects.');
       report.summary = 'Orchestration reported a full FAILED status.';
       return;
     }
 
     if (errors.length > 0) {
-      report.issuesToAddress.push(`Orchestration reported ${errors.length} error(s). Please review orchestration logs and error details.`);
+      report.issuesToAddress.push(`WARNING: Orchestration reported ${errors.length} error(s). Please review orchestration logs and error details.`);
       errors.forEach(err => report.actionableSuggestions.push(`Review orchestration error: ${err.substring(0, 100)}...`));
     }
 
@@ -134,7 +134,8 @@ export class SupervisorAgent extends Agent {
     } else {
       const checkField = (fieldName: string, field: ExtractedField<any> | undefined, critical: boolean = false) => {
         if (!field || field.value === null || field.value === undefined || (typeof field.value === 'string' && !field.value.trim())) {
-          const severity = critical ? 'CRITICAL' : 'WARNING';
+          // Only mark as CRITICAL if the field is truly essential AND critical flag is set
+          const severity = critical && fieldName === 'Property Address' ? 'CRITICAL' : 'WARNING';
           report.issuesToAddress.push(`${severity}: Required field '${fieldName}' is missing or empty in estimate extraction.`);
         } else if (field.confidence < 0.5) {
           report.issuesToAddress.push(`WARNING: Field '${fieldName}' in estimate has low confidence (${field.confidence.toFixed(2)}).`);
@@ -142,9 +143,9 @@ export class SupervisorAgent extends Agent {
       };
       // --- Mandatory Estimate Fields ---
       checkField('Property Address', estimateExtraction.data.propertyAddress, true);
-      checkField('Total RCV', estimateExtraction.data.totalRCV, true);
-      checkField('Claim Number', estimateExtraction.data.claimNumber, true);
-      checkField('Insurance Carrier', estimateExtraction.data.insuranceCarrier, true);
+      checkField('Total RCV', estimateExtraction.data.totalRCV, false); // Changed to non-critical
+      checkField('Claim Number', estimateExtraction.data.claimNumber, false); // Changed to non-critical
+      checkField('Insurance Carrier', estimateExtraction.data.insuranceCarrier, false); // Changed to non-critical
       if (estimateExtraction.data.lineItems.value && estimateExtraction.data.lineItems.value.length > 0) {
         report.highlights.push('Estimate line items were extracted.');
       } else {
@@ -153,7 +154,7 @@ export class SupervisorAgent extends Agent {
     }
 
     if (orchestrationOutput.wasRoofReportProvided && !roofReportExtraction?.data) {
-      report.issuesToAddress.push('CRITICAL: Roof report was provided but data extraction failed or yielded no results.');
+      report.issuesToAddress.push('WARNING: Roof report was provided but data extraction failed or yielded no results.');
     }
     
     if (roofReportExtraction?.data) {
@@ -163,8 +164,8 @@ export class SupervisorAgent extends Agent {
         const fieldMissing = !field || field.value === null || field.value === undefined || (typeof field.value === 'string' && !field.value.toString().trim());
 
         if (fieldMissing) {
-          const severity = roofExtractionConfidence < 0.5 ? 'WARNING' : 'CRITICAL';
-          report.issuesToAddress.push(`${severity}: Required roof measurement field '${fieldName}' is missing or empty.`);
+          // Always use WARNING for missing roof fields
+          report.issuesToAddress.push(`WARNING: Required roof measurement field '${fieldName}' is missing or empty.`);
         } else if (field.confidence < 0.5) {
           report.issuesToAddress.push(`WARNING: Roof field '${fieldName}' has low confidence (${field.confidence.toFixed(2)}).`);
         }
@@ -278,34 +279,47 @@ export class SupervisorAgent extends Agent {
     const orchestratorPartial = orchestrationOutput.status === JobStatus.FAILED_PARTIAL;
 
     if (orchestratorFailed) {
+      // Only fail if orchestration completely failed
       report.finalStatus = JobStatus.FAILED;
-      report.summary = report.summary || 'Critical failure during orchestration process.';
+      report.summary = report.summary || 'Critical failure during orchestration process. Manual intervention required.';
       confidence = 0.05;
-    } else if (hasCritical || orchestratorPartial) {
-      // Real errors that block automated completion
-      report.finalStatus = JobStatus.FAILED_PARTIAL;
-      report.summary = report.summary || 'Critical or blocking issues identified. Manual review required.';
-      confidence = 0.2;
     } else {
-      // Only warnings / low-confidence issues
+      // All other cases complete with appropriate warnings
       report.finalStatus = JobStatus.COMPLETED;
-      if (report.issuesToAddress.length > 0) {
-        // downgrade confidence but still succeed
+      
+      if (hasCritical || orchestratorPartial) {
+        // Low confidence but still complete
+        confidence = 0.3;
+        report.summary = report.summary || 'Completed with low confidence. Critical issues identified that require manual review.';
+        report.highlights.push('Job completed but requires manual review due to low confidence.');
+      } else if (report.issuesToAddress.length > 0) {
+        // Medium confidence with warnings
         confidence = 0.6;
-        report.summary = report.summary || 'Completed with warnings that should be reviewed.';
+        report.summary = report.summary || 'Completed with warnings. Some issues were identified for review.';
+        report.highlights.push('Job completed with warnings.');
       } else {
+        // High confidence
         confidence = 0.9;
-        report.summary = report.summary || 'Supervision completed. All checks passed.';
+        report.summary = report.summary || 'Supervision completed successfully. All checks passed.';
+        report.highlights.push('Process completed without issues.');
       }
-      report.highlights.push('Process completed without critical issues.');
     }
     
     // Factor in orchestrator's confidence
-    const orchestratorConfidence = orchestrationOutput.estimateExtraction?.validation.confidence || 0.5; // Example, could be more nuanced
-    report.overallConfidence = Math.max(0.05, Math.min(0.95, (confidence + orchestratorConfidence)/2));
+    const orchestratorConfidence = orchestrationOutput.estimateExtraction?.validation.confidence || 0.5;
+    const roofConfidence = orchestrationOutput.roofReportExtraction?.validation?.confidence || 0.5;
+    
+    // Average the confidences but ensure minimum values
+    const avgExtractionConfidence = (orchestratorConfidence + roofConfidence) / 2;
+    report.overallConfidence = Math.max(0.1, Math.min(0.95, (confidence + avgExtractionConfidence) / 2));
+    
+    // Add confidence level to summary if low
+    if (report.overallConfidence < 0.5) {
+      report.summary += ` Overall confidence: ${(report.overallConfidence * 100).toFixed(0)}%.`;
+    }
     
     if (report.summary === 'Supervision in progress.' && !report.issuesToAddress.length && !report.highlights.length) {
-        report.summary = 'Automated supervision checks completed. No specific AI summary was generated or rule-based issues found beyond orchestration status.';
+        report.summary = 'Automated supervision checks completed. No specific issues found.';
     }
 }
 

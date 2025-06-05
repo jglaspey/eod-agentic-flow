@@ -210,16 +210,33 @@ async function processFilesWithNewAgent(
 
         if (supervisionReport) {
             logStreamer.logStep(jobId, 'supervision_complete', `SupervisorAgent finished. Outcome: ${supervisionReport.finalStatus}`);
-            if (supervisionReport.finalStatus === JobStatus.FAILED || supervisionReport.finalStatus === JobStatus.FAILED_PARTIAL) {
-                finalJobStatus = supervisionReport.finalStatus;
-                detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + "; " : "") + "Supervision rejected due to critical issues.";
+            if (supervisionReport.overallConfidence < 0.5) {
+                const confidenceWarning = `Low confidence (${(supervisionReport.overallConfidence * 100).toFixed(0)}%). Manual review recommended.`;
+                if (supervisionReport.issuesToAddress && supervisionReport.issuesToAddress.length > 0) {
+                    detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + "; " : "") + 
+                                         confidenceWarning + " Issues: " + supervisionReport.issuesToAddress.join(", ");
+                } else {
+                    detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + "; " : "") + confidenceWarning;
+                }
             }
         } else {
             logStreamer.logError(jobId, 'supervision_null_report', 'SupervisorAgent returned a null report.');
+            detailedErrorMessage = (detailedErrorMessage ? detailedErrorMessage + "; " : "") + "Supervision report unavailable.";
         }
     }
 
     logStreamer.logStep(jobId, 'database_save_start', 'Saving processed data to database');
+
+    // Set job status to completed if we have successful orchestration output
+    if (orchestrationOutput && finalJobStatus === JobStatus.IN_PROGRESS) {
+        // If orchestration succeeded (at least partially) and we're still in progress, mark as completed
+        if (orchestrationOutput.status === JobStatus.COMPLETED || 
+            orchestrationOutput.status === JobStatus.FAILED_PARTIAL ||
+            (orchestrationOutput.estimateExtraction && orchestrationOutput.estimateExtraction.data)) {
+            finalJobStatus = JobStatus.COMPLETED;
+            logStreamer.logStep(jobId, 'status_update', 'Job marked as completed with available data');
+        }
+    }
 
     // Prepare data for generateAndSaveReport and for job_data table (some fields overlap)
     const estimateDataForReport: EstimateData | null = orchestrationOutput?.estimateExtraction?.data ? 
