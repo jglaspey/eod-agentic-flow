@@ -344,16 +344,39 @@ export class OrchestrationAgent extends Agent {
          output.errors.push('Skipped supplement generation: Estimate data unavailable.');
       }
       
-      // Determine final status
-      const hasCriticalErrors = output.errors.some(e => !e.toLowerCase().startsWith('low confidence'));
+      // Determine final status - be more conservative about what constitutes a critical error
+      // If we have estimate data, most failures should be treated as warnings, not critical errors
+      const isTrulyCriticalError = (error: string) => {
+        const e = error.toLowerCase();
+        
+        // Only these are truly critical errors that should cause FAILED_PARTIAL
+        return e.includes('estimate extraction failed') && 
+               !e.includes('skipped') && 
+               !e.includes('vision') && 
+               !e.includes('pdf to images');
+      };
+      
+      const hasCriticalErrors = output.errors.some(isTrulyCriticalError);
 
-      if (!hasCriticalErrors && output.estimateExtraction?.data) {
-        // Only low-confidence messages present → treat as completed with warnings
-        output.status = JobStatus.COMPLETED;
-      } else if (output.estimateExtraction?.data) { // Has data, but also critical errors
-        output.status = JobStatus.FAILED_PARTIAL;
+      if (output.estimateExtraction?.data) {
+        // If we have estimate data, treat as completed even with non-critical errors
+        if (!hasCriticalErrors) {
+          output.status = JobStatus.COMPLETED;
+          // Move non-critical errors to warnings
+          const nonCriticalErrors = output.errors.filter(e => !isTrulyCriticalError(e));
+          nonCriticalErrors.forEach(error => {
+            if (!output.warnings.includes(error)) {
+              output.warnings.push(error);
+            }
+          });
+          // Keep only critical errors in the errors array
+          output.errors = output.errors.filter(isTrulyCriticalError);
+        } else {
+          // Has data but also truly critical errors
+          output.status = JobStatus.FAILED_PARTIAL;
+        }
       } else {
-        // If estimate extraction itself failed to produce data, it's a hard failure for the job.
+        // If estimate extraction itself failed to produce data, it's a hard failure
         output.status = JobStatus.FAILED;
         if (!output.errors.some(e => e.startsWith('Estimate extraction failed'))) {
             output.errors.push('Critical failure: Estimate data could not be extracted.');

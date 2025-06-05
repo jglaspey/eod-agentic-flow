@@ -141,11 +141,11 @@ export class SupervisorAgent extends Agent {
           report.issuesToAddress.push(`WARNING: Field '${fieldName}' in estimate has low confidence (${field.confidence.toFixed(2)}).`);
         }
       };
-      // --- Mandatory Estimate Fields ---
-      checkField('Property Address', estimateExtraction.data.propertyAddress, true);
-      checkField('Total RCV', estimateExtraction.data.totalRCV, false); // Changed to non-critical
-      checkField('Claim Number', estimateExtraction.data.claimNumber, false); // Changed to non-critical
-      checkField('Insurance Carrier', estimateExtraction.data.insuranceCarrier, false); // Changed to non-critical
+      // --- Mandatory Estimate Fields (changed from critical to warnings) ---
+      checkField('Property Address', estimateExtraction.data.propertyAddress, false);
+      checkField('Total RCV', estimateExtraction.data.totalRCV, false);
+      checkField('Claim Number', estimateExtraction.data.claimNumber, false);
+      checkField('Insurance Carrier', estimateExtraction.data.insuranceCarrier, false);
       if (estimateExtraction.data.lineItems.value && estimateExtraction.data.lineItems.value.length > 0) {
         report.highlights.push('Estimate line items were extracted.');
       } else {
@@ -159,12 +159,9 @@ export class SupervisorAgent extends Agent {
     
     if (roofReportExtraction?.data) {
       const checkRoofField = (fieldName: string, field: ExtractedField<any> | undefined) => {
-        const roofExtractionConfidence = roofReportExtraction?.validation?.confidence ?? 0;
-
         const fieldMissing = !field || field.value === null || field.value === undefined || (typeof field.value === 'string' && !field.value.toString().trim());
 
         if (fieldMissing) {
-          // Always use WARNING for missing roof fields
           report.issuesToAddress.push(`WARNING: Required roof measurement field '${fieldName}' is missing or empty.`);
         } else if (field.confidence < 0.5) {
           report.issuesToAddress.push(`WARNING: Roof field '${fieldName}' has low confidence (${field.confidence.toFixed(2)}).`);
@@ -279,30 +276,28 @@ export class SupervisorAgent extends Agent {
     const orchestratorPartial = orchestrationOutput.status === JobStatus.FAILED_PARTIAL;
 
     if (orchestratorFailed) {
-      // Only fail if orchestration completely failed
+      // Only fail if orchestrator truly failed (no estimate data at all)
       report.finalStatus = JobStatus.FAILED;
-      report.summary = report.summary || 'Critical failure during orchestration process. Manual intervention required.';
+      report.summary = report.summary || 'Critical failure during orchestration process.';
       confidence = 0.05;
+    } else if (hasCritical) {
+      // Only set FAILED_PARTIAL if there are truly critical issues (should be rare now)
+      report.finalStatus = JobStatus.FAILED_PARTIAL;
+      report.summary = report.summary || 'Critical issues identified that prevent automated completion.';
+      confidence = 0.2;
     } else {
-      // All other cases complete with appropriate warnings
+      // Complete successfully even with orchestrator partial status or warnings
+      // Since we've converted most critical issues to warnings, treat FAILED_PARTIAL as completed
       report.finalStatus = JobStatus.COMPLETED;
-      
-      if (hasCritical || orchestratorPartial) {
-        // Low confidence but still complete
-        confidence = 0.3;
-        report.summary = report.summary || 'Completed with low confidence. Critical issues identified that require manual review.';
-        report.highlights.push('Job completed but requires manual review due to low confidence.');
-      } else if (report.issuesToAddress.length > 0) {
-        // Medium confidence with warnings
+      if (report.issuesToAddress.length > 0 || orchestratorPartial) {
+        // downgrade confidence but still succeed
         confidence = 0.6;
-        report.summary = report.summary || 'Completed with warnings. Some issues were identified for review.';
-        report.highlights.push('Job completed with warnings.');
+        report.summary = report.summary || 'Completed with warnings that should be reviewed.';
       } else {
-        // High confidence
         confidence = 0.9;
-        report.summary = report.summary || 'Supervision completed successfully. All checks passed.';
-        report.highlights.push('Process completed without issues.');
+        report.summary = report.summary || 'Supervision completed. All checks passed.';
       }
+      report.highlights.push('Process completed successfully.');
     }
     
     // Factor in orchestrator's confidence

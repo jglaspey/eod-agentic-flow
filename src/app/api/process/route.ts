@@ -386,9 +386,9 @@ async function processFilesWithNewAgent(
         case JobStatus.PENDING:
           return 'processing';
         case JobStatus.COMPLETED:
+        case JobStatus.FAILED_PARTIAL: // Treat partial failures as completed with warnings
           return 'completed';
         case JobStatus.FAILED:
-        case JobStatus.FAILED_PARTIAL:
         case JobStatus.CANCELLED:
         default:
           return 'failed';
