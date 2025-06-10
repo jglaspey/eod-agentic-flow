@@ -36,6 +36,7 @@ export class EstimateExtractorAgent extends Agent {
   private supabase = getSupabaseClient()
   public openai: OpenAI | null = null
   public anthropic: Anthropic | null = null
+  private mistralApiKey: string | null = null
 
   constructor() {
     const config: AgentConfig = {
@@ -61,6 +62,10 @@ export class EstimateExtractorAgent extends Agent {
       this.anthropic = new Anthropic({
         apiKey: process.env.ANTHROPIC_API_KEY
       })
+    }
+
+    if (process.env.MISTRAL_API_KEY && process.env.MISTRAL_API_KEY !== 'your_mistral_api_key_here') {
+      this.mistralApiKey = process.env.MISTRAL_API_KEY
     }
   }
 
@@ -194,43 +199,38 @@ export class EstimateExtractorAgent extends Agent {
         });
       }
 
-      const shouldUseVision = (
+      const shouldUseMistralOCR = (
         input.strategy === ExtractionStrategy.VISION_ONLY ||
         input.strategy === ExtractionStrategy.HYBRID ||
         (input.strategy === ExtractionStrategy.FALLBACK && (!textResults || this.getOverallConfidence(textResults) < this.config.confidenceThreshold))
       )
 
-      if (shouldUseVision) {
-        logStreamer.logDebug(jobId, 'vision_extraction_check', 'Checking vision extraction availability', { shouldUseVision, strategy: input.strategy });
+      if (shouldUseMistralOCR) {
+        logStreamer.logDebug(jobId, 'mistral_ocr_check', 'Checking Mistral OCR extraction availability', { shouldUseMistralOCR, strategy: input.strategy });
         
-        // Check if vision processing is available in this environment
-        const isPdfToImagesAvailable = await PDFToImagesTool.isAvailable();
-        const isVisionProcessorAvailable = this.visionProcessor.isAvailable();
-        
-        if (isPdfToImagesAvailable && isVisionProcessorAvailable) {
-          this.log(LogLevel.INFO, 'vision-fallback', 'Using vision models for extraction', { taskId: context.taskId })
-          logStreamer.logStep(jobId, 'vision_extraction_start', 'Starting vision-based field extraction', { taskId: context.taskId });
+        // Try Mistral OCR first (works in serverless environment)
+        if (this.isMistralOCRAvailable()) {
+          this.log(LogLevel.INFO, 'mistral-ocr-extraction', 'Using Mistral OCR for PDF extraction', { taskId: context.taskId })
+          logStreamer.logStep(jobId, 'mistral_ocr_extraction_start', 'Starting Mistral OCR-based field extraction', { taskId: context.taskId });
           
           try {
-            visionResults = await this.extractFieldsFromVision(input.pdfBuffer, context)
-            logStreamer.logDebug(jobId, 'vision_extraction_success', 'Vision field extraction completed', { 
+            visionResults = await this.extractFieldsFromMistralOCR(input.pdfBuffer, context)
+            logStreamer.logDebug(jobId, 'mistral_ocr_extraction_success', 'Mistral OCR field extraction completed', { 
               extractedFields: visionResults ? Object.keys(visionResults as object).length : 0,
               overallConfidence: visionResults ? this.getOverallConfidence(visionResults) : 0
             });
-          } catch (visionError) {
-            this.log(LogLevel.WARN, 'vision-extraction-error', `Field extraction from vision failed: ${visionError}`, { taskId: context.taskId, error: visionError })
-            logStreamer.logError(jobId, 'vision_extraction_error', `Field extraction from vision failed: ${visionError}`, { error: visionError });
+          } catch (mistralError) {
+            this.log(LogLevel.WARN, 'mistral-ocr-extraction-error', `Field extraction from Mistral OCR failed: ${mistralError}`, { taskId: context.taskId, error: mistralError })
+            logStreamer.logError(jobId, 'mistral_ocr_extraction_error', `Field extraction from Mistral OCR failed: ${mistralError}`, { error: mistralError });
           }
         } else {
-          this.log(LogLevel.WARN, 'vision-unavailable', 'Vision processing requested but tools are not available', { taskId: context.taskId })
-          logStreamer.logStep(jobId, 'vision_extraction_unavailable', 'Vision processing unavailable in this environment', { 
-            pdfToImagesAvailable: isPdfToImagesAvailable,
-            visionProcessorAvailable: isVisionProcessorAvailable,
-            reason: !isPdfToImagesAvailable ? 'PDF-to-images tool not available (missing Python dependencies)' : 'Vision processor not available'
+          this.log(LogLevel.WARN, 'mistral-ocr-unavailable', 'Mistral OCR requested but not configured', { taskId: context.taskId })
+          logStreamer.logStep(jobId, 'mistral_ocr_extraction_unavailable', 'Mistral OCR unavailable - API key not configured', { 
+            reason: 'Mistral API key not available or not configured'
           });
         }
       } else {
-        logStreamer.logDebug(jobId, 'vision_extraction_skipped', 'Vision extraction not needed for this strategy', { strategy: input.strategy });
+        logStreamer.logDebug(jobId, 'mistral_ocr_extraction_skipped', 'Mistral OCR extraction not needed for this strategy', { strategy: input.strategy });
       }
 
       if (!textResults && !visionResults) {
@@ -264,6 +264,12 @@ export class EstimateExtractorAgent extends Agent {
         `Extraction completed with overall confidence: ${overallConfidence.toFixed(3)}`,
         { taskId: context.taskId, overallConfidence }
       )
+      
+      // Determine extraction method used
+      const extractionMethod = visionResults && textResults ? 'hybrid' : 
+                              visionResults ? (visionResults.propertyAddress?.rationale?.includes('Mistral OCR') ? 'mistral-ocr' : 'vision') : 
+                              'text'
+      
       logStreamer.logStep(jobId, 'estimate_extraction_complete', 
         `EstimateExtractorAgent processing finished. Overall confidence: ${overallConfidence.toFixed(3)}`, 
         {
@@ -276,9 +282,11 @@ export class EstimateExtractorAgent extends Agent {
             totalACV: finalResults.totalACV?.value,
             deductible: finalResults.deductible?.value,
             lineItemCount: finalResults.lineItems?.value?.length,
-            usedVision: !!visionResults,
+            usedMistralOCR: extractionMethod === 'mistral-ocr',
+            usedVision: extractionMethod === 'vision',
             usedText: !!textResults,
             textQuality: textConfidence,
+            extractionMethod: extractionMethod
           },
           taskId: context.taskId,
           // finalResults: finalResults // Potentially large, consider sampling or summarizing further
@@ -289,7 +297,7 @@ export class EstimateExtractorAgent extends Agent {
         data: finalResults,
         validation: await this.validate(finalResults, context),
         processingTimeMs: 0,
-        model: visionResults && textResults ? 'hybrid' : (visionResults ? 'vision' : 'text')
+        model: extractionMethod
       }
 
     } catch (error: any) {
@@ -974,5 +982,157 @@ If a field is not found or unclear, use null. For numeric fields, return only th
   public isValidClaimNumber(claimNumber: string | null): boolean {
     if (!claimNumber) return false;
     return /^[A-Za-z0-9\-]{5,50}$/.test(claimNumber)
+  }
+
+  /**
+   * Check if Mistral OCR is available
+   */
+  public isMistralOCRAvailable(): boolean {
+    return this.mistralApiKey !== null
+  }
+
+  /**
+   * Extract fields from PDF using Mistral OCR
+   */
+  public async extractFieldsFromMistralOCR(pdfBuffer: Buffer, context: TaskContext): Promise<EstimateFieldExtractions> {
+    const jobId = context.jobId;
+    logStreamer.logDebug(jobId, 'extract_fields_from_mistral_ocr_start', 'EstimateExtractorAgent.extractFieldsFromMistralOCR() starting', { 
+      bufferSize: pdfBuffer.length,
+      taskId: context.taskId 
+    });
+    
+    this.log(LogLevel.DEBUG, 'mistral-ocr-extraction-start', 'Starting Mistral OCR-based field extraction', { taskId: context.taskId })
+    
+    if (!this.mistralApiKey) {
+      throw new Error('Mistral API key not configured')
+    }
+
+    // Convert PDF buffer to base64
+    const base64Pdf = pdfBuffer.toString('base64')
+    const dataUrl = `data:application/pdf;base64,${base64Pdf}`
+
+    const prompt = `
+Analyze this insurance estimate PDF document and extract the following information. Prioritize accuracy.
+
+1.  **Property Address**: The physical address of the property where the damage occurred. Exclude any mailing addresses for the insured or insurer if different.
+2.  **Claim Number**: The unique identifier assigned to this insurance claim.
+3.  **Insurance Carrier**: The name of the insurance company handling the claim.
+4.  **Total RCV (Replacement Cost Value)**: The total estimated cost to repair or replace the damaged property to its pre-loss condition, without deduction for depreciation.
+5.  **Total ACV (Actual Cash Value)**: The value of the property at the time of loss, considering depreciation. If not explicitly stated, it might be the same as RCV or RCV minus deductible/depreciation.
+6.  **Deductible Amount**: The amount the policyholder is responsible for paying before the insurance coverage applies.
+7.  **Date of Loss**: The date when the damage or loss occurred.
+
+Return the information ONLY in this exact JSON format. Do not add any commentary before or after the JSON block:
+{
+  "propertyAddress": "string_value_or_null",
+  "claimNumber": "string_value_or_null", 
+  "insuranceCarrier": "string_value_or_null",
+  "totalRCV": numeric_value_or_null,
+  "totalACV": numeric_value_or_null,
+  "deductible": numeric_value_or_null,
+  "dateOfLoss": "YYYY-MM-DD_or_null"
+}
+
+If a field is not found or unclear, use null. For numeric fields, return only the number, no currency symbols or text.
+    `
+
+    const requestBody = {
+      model: 'pixtral-12b-2409',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: prompt
+            },
+            {
+              type: 'document',
+              document_url: dataUrl
+            }
+          ]
+        }
+      ],
+      max_tokens: 2000,
+      temperature: 0.1
+    }
+
+    logStreamer.logDebug(jobId, 'mistral_ocr_api_call_start', 'Calling Mistral OCR API', { 
+      model: 'pixtral-12b-2409',
+      pdfSize: pdfBuffer.length
+    });
+
+    try {
+      const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.mistralApiKey}`
+        },
+        body: JSON.stringify(requestBody)
+      })
+
+      if (!response.ok) {
+        throw new Error(`Mistral API error: ${response.status} ${response.statusText}`)
+      }
+
+      const result = await response.json()
+      const extractedText = result.choices?.[0]?.message?.content || ''
+      
+      logStreamer.logDebug(jobId, 'mistral_ocr_api_call_complete', 'Mistral OCR API call completed', {
+        responseLength: extractedText.length,
+        model: 'pixtral-12b-2409'
+      });
+
+      this.log(LogLevel.INFO, 'mistral-ocr-analysis-complete', 
+        `Mistral OCR analysis completed. Response length: ${extractedText.length}`,
+        { taskId: context.taskId, responseLength: extractedText.length }
+      )
+
+      // Parse the JSON response
+      try {
+        logStreamer.logDebug(jobId, 'mistral_ocr_response_parsing', 'Parsing Mistral OCR JSON response', { 
+          responseLength: extractedText.length 
+        });
+        
+        const parsed = JSON.parse(extractedText.replace(/,(?=\s*\})/g, ''));
+        
+        const confidence = 0.85; // Base confidence for Mistral OCR
+        
+        const result = {
+          propertyAddress: this.createExtractedField(parsed.propertyAddress, confidence, 'Extracted via Mistral OCR', 'vision'),
+          claimNumber: this.createExtractedField(parsed.claimNumber, confidence, 'Extracted via Mistral OCR', 'vision'),
+          insuranceCarrier: this.createExtractedField(parsed.insuranceCarrier, confidence, 'Extracted via Mistral OCR', 'vision'),
+          dateOfLoss: this.createExtractedField(parsed.dateOfLoss ? new Date(parsed.dateOfLoss) : null, confidence * 0.8, 'Extracted via Mistral OCR', 'vision'),
+          totalRCV: this.createExtractedField(parsed.totalRCV, confidence, 'Extracted via Mistral OCR', 'vision'),
+          totalACV: this.createExtractedField(parsed.totalACV, confidence * 0.9, 'Extracted via Mistral OCR', 'vision'),
+          deductible: this.createExtractedField(parsed.deductible, confidence * 0.9, 'Extracted via Mistral OCR', 'vision'),
+          lineItems: this.createExtractedField([], 0.3, 'Line items not extracted by basic OCR prompt', 'vision')
+        };
+        
+        logStreamer.logDebug(jobId, 'extract_fields_from_mistral_ocr_complete', 'EstimateExtractorAgent.extractFieldsFromMistralOCR() completed', {
+          parsedValues: {
+            propertyAddress: parsed.propertyAddress,
+            claimNumber: parsed.claimNumber,
+            insuranceCarrier: parsed.insuranceCarrier,
+            totalRCV: parsed.totalRCV,
+            totalACV: parsed.totalACV,
+            deductible: parsed.deductible,
+            dateOfLoss: parsed.dateOfLoss
+          },
+          overallConfidence: this.getOverallConfidence(result)
+        });
+        
+        return result;
+      } catch (parseError) {
+        this.log(LogLevel.WARN, 'mistral-ocr-parse-failed', `Failed to parse Mistral OCR JSON response: ${extractedText}. Error: ${parseError}`)
+        throw new Error(`Failed to parse Mistral OCR response. Raw: ${extractedText}. Error: ${parseError}`)
+      }
+
+    } catch (error) {
+      this.log(LogLevel.ERROR, 'mistral-ocr-api-error', `Mistral OCR API call failed: ${error}`, { taskId: context.taskId, error })
+      logStreamer.logError(jobId, 'mistral_ocr_api_error', `Mistral OCR API call failed: ${error}`, { error });
+      throw error
+    }
   }
 } 
