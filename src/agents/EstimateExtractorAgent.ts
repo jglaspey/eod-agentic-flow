@@ -64,6 +64,7 @@ export class EstimateExtractorAgent extends Agent {
       })
     }
 
+    // Initialize Mistral API key for OCR processing
     if (process.env.MISTRAL_API_KEY && process.env.MISTRAL_API_KEY !== 'your_mistral_api_key_here') {
       this.mistralApiKey = process.env.MISTRAL_API_KEY
     }
