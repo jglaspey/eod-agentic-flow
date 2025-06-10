@@ -163,7 +163,10 @@ export class EstimateExtractorAgent extends Agent {
         { textLength: textExtractionResult.length, quality: textConfidence, taskId: context.taskId }
       )
 
-      if (textConfidence > 0.3 && 
+      // Use lower threshold if vision processing is not available to be more permissive
+      const minTextConfidence = (input.strategy === ExtractionStrategy.HYBRID || input.strategy === ExtractionStrategy.FALLBACK) ? 0.1 : 0.3;
+      
+      if (textConfidence > minTextConfidence && 
           (input.strategy === ExtractionStrategy.TEXT_ONLY || 
            input.strategy === ExtractionStrategy.HYBRID || 
            input.strategy === ExtractionStrategy.FALLBACK)) {
@@ -186,7 +189,8 @@ export class EstimateExtractorAgent extends Agent {
         logStreamer.logDebug(jobId, 'text_field_extraction_skipped', 'Skipping text field extraction', { 
           textQuality: textConfidence, 
           strategy: input.strategy,
-          reason: textConfidence <= 0.3 ? 'Low text quality' : 'Strategy does not include text extraction'
+          minTextConfidence: minTextConfidence,
+          reason: textConfidence <= minTextConfidence ? 'Low text quality' : 'Strategy does not include text extraction'
         });
       }
 
@@ -198,10 +202,12 @@ export class EstimateExtractorAgent extends Agent {
 
       if (shouldUseVision) {
         logStreamer.logDebug(jobId, 'vision_extraction_check', 'Checking vision extraction availability', { shouldUseVision, strategy: input.strategy });
-        console.log(`[${jobId}] EstimateExtractorAgent.act: Vision processing disabled for serverless environment`);
         
-        // Disable vision processing in serverless environment to avoid Python dependency issues
-        if (false && await PDFToImagesTool.isAvailable() && this.visionProcessor.isAvailable()) {
+        // Check if vision processing is available in this environment
+        const isPdfToImagesAvailable = await PDFToImagesTool.isAvailable();
+        const isVisionProcessorAvailable = this.visionProcessor.isAvailable();
+        
+        if (isPdfToImagesAvailable && isVisionProcessorAvailable) {
           this.log(LogLevel.INFO, 'vision-fallback', 'Using vision models for extraction', { taskId: context.taskId })
           logStreamer.logStep(jobId, 'vision_extraction_start', 'Starting vision-based field extraction', { taskId: context.taskId });
           
@@ -217,10 +223,10 @@ export class EstimateExtractorAgent extends Agent {
           }
         } else {
           this.log(LogLevel.WARN, 'vision-unavailable', 'Vision processing requested but tools are not available', { taskId: context.taskId })
-          logStreamer.logStep(jobId, 'vision_extraction_unavailable', 'Vision processing disabled for serverless environment', { 
-            pdfToImagesAvailable: false, // Disabled for serverless
-            visionProcessorAvailable: this.visionProcessor.isAvailable(),
-            reason: 'Serverless environment - Python dependencies not available'
+          logStreamer.logStep(jobId, 'vision_extraction_unavailable', 'Vision processing unavailable in this environment', { 
+            pdfToImagesAvailable: isPdfToImagesAvailable,
+            visionProcessorAvailable: isVisionProcessorAvailable,
+            reason: !isPdfToImagesAvailable ? 'PDF-to-images tool not available (missing Python dependencies)' : 'Vision processor not available'
           });
         }
       } else {
@@ -228,7 +234,28 @@ export class EstimateExtractorAgent extends Agent {
       }
 
       if (!textResults && !visionResults) {
-        throw new Error('Both text and vision extraction failed to produce results.')
+        this.log(LogLevel.WARN, 'extraction-failed-fallback', 'Both text and vision extraction failed, creating fallback results', { taskId: context.taskId });
+        logStreamer.logStep(jobId, 'extraction_failed_fallback', 'Both text and vision extraction failed, creating fallback results');
+        
+        // Create minimal fallback results instead of failing completely
+        const emptyField = (rationale: string) => this.createExtractedField(null, 0.1, rationale, 'fallback');
+        const finalResults = {
+          propertyAddress: emptyField('Extraction failed - no data available'),
+          claimNumber: emptyField('Extraction failed - no data available'),
+          insuranceCarrier: emptyField('Extraction failed - no data available'),
+          dateOfLoss: emptyField('Extraction failed - no data available'),
+          totalRCV: this.createExtractedField(0, 0.1, 'Extraction failed - no data available', 'fallback'),
+          totalACV: this.createExtractedField(0, 0.1, 'Extraction failed - no data available', 'fallback'),
+          deductible: this.createExtractedField(0, 0.1, 'Extraction failed - no data available', 'fallback'),
+          lineItems: this.createExtractedField([], 0.1, 'Extraction failed - no data available', 'fallback'),
+        };
+        
+        return {
+          data: finalResults,
+          validation: await this.validate(finalResults, context),
+          processingTimeMs: 0,
+          model: 'fallback'
+        }
       }
       const finalResults = this.combineExtractionResults(textResults, visionResults, textConfidence)
       
