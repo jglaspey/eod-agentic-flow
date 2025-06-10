@@ -59,11 +59,23 @@
 ## 🚧 IN PROGRESS / NEXT STEPS
 
 ### Phase 5: Enhanced Accuracy & Validation
-- [x] **Serverless Environment Fixes** ✅ (Latest Session)
+- [x] **Serverless Environment Fixes** ✅ (June 10, 2025)
   - [x] Fixed EstimateExtractorAgent vision processing checks
   - [x] Improved text extraction quality handling for image-based PDFs
   - [x] Added graceful fallback when extraction methods fail
   - [x] Enhanced error handling to prevent job failures
+  
+- [x] **Mistral OCR Integration** ✅ (June 10, 2025)
+  - [x] Replaced Python-dependent vision processing with Mistral OCR API
+  - [x] Added direct PDF processing capability via Mistral Pixtral model
+  - [x] Implemented extractFieldsFromMistralOCR method for serverless compatibility
+  - [x] Enhanced logging to track Mistral OCR vs other extraction methods
+
+- [x] **File Upload Optimization** ✅ (June 10, 2025)
+  - [x] Increased file size limits to 4MB per file, 4.2MB total
+  - [x] Added comprehensive file size validation on client and server
+  - [x] Improved error messages for file size and format issues
+  - [x] Optimized for Vercel's 4.5MB serverless request limits
 
 - [ ] **Supplement Validation System**
   - [ ] Cross-reference generated supplements with actual estimate line items
