@@ -25,8 +25,8 @@ export default function UploadInterface({ onJobCreated }: UploadInterfaceProps) 
       setError('Please upload PDF files only')
       return false
     }
-    if (file.size > 2 * 1024 * 1024) { // 2MB limit for Vercel
-      setError(`File size must be less than 2MB. Your file is ${(file.size / 1024 / 1024).toFixed(1)}MB`)
+    if (file.size > 4 * 1024 * 1024) { // 4MB limit per file for Vercel
+      setError(`File size must be less than 4MB. Your file is ${(file.size / 1024 / 1024).toFixed(1)}MB`)
       return false
     }
     return true
@@ -84,7 +84,7 @@ export default function UploadInterface({ onJobCreated }: UploadInterfaceProps) 
 
       if (!response.ok) {
         if (response.status === 413) {
-          throw new Error('Files too large. Please use smaller PDF files (under 2MB each)')
+          throw new Error('Files too large. Please use smaller PDF files (under 4MB each)')
         }
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
         throw new Error(errorData.error || 'Processing failed')
