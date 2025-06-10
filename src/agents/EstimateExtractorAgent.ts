@@ -1370,15 +1370,15 @@ If a field is not found or unclear, use null. For numeric fields, return only th
         logStreamer.logStep(jobId, 'mistral_ocr_fallback_extraction', 'Attempting fallback extraction from raw Mistral OCR response');
         
         // Create a minimal result with low confidence
-        const fallbackResult = {
-          propertyAddress: this.createExtractedField(null, 0.2, 'JSON parsing failed - no address extracted', 'vision'),
-          claimNumber: this.createExtractedField(null, 0.2, 'JSON parsing failed - no claim number extracted', 'vision'),
-          insuranceCarrier: this.createExtractedField(null, 0.2, 'JSON parsing failed - no carrier extracted', 'vision'),
-          dateOfLoss: this.createExtractedField(null, 0.1, 'JSON parsing failed - no date extracted', 'vision'),
-          totalRCV: this.createExtractedField(null, 0.2, 'JSON parsing failed - no RCV extracted', 'vision'),
-          totalACV: this.createExtractedField(null, 0.1, 'JSON parsing failed - no ACV extracted', 'vision'),
-          deductible: this.createExtractedField(null, 0.1, 'JSON parsing failed - no deductible extracted', 'vision'),
-          lineItems: this.createExtractedField([], 0.1, 'JSON parsing failed - no line items extracted', 'vision')
+        const fallbackResult: EstimateFieldExtractions = {
+          propertyAddress: this.createExtractedField<string | null>(null, 0.2, 'JSON parsing failed - no address extracted', 'vision'),
+          claimNumber: this.createExtractedField<string | null>(null, 0.2, 'JSON parsing failed - no claim number extracted', 'vision'),
+          insuranceCarrier: this.createExtractedField<string | null>(null, 0.2, 'JSON parsing failed - no carrier extracted', 'vision'),
+          dateOfLoss: this.createExtractedField<Date | null>(null, 0.1, 'JSON parsing failed - no date extracted', 'vision'),
+          totalRCV: this.createExtractedField<number | null>(null, 0.2, 'JSON parsing failed - no RCV extracted', 'vision'),
+          totalACV: this.createExtractedField<number | null>(null, 0.1, 'JSON parsing failed - no ACV extracted', 'vision'),
+          deductible: this.createExtractedField<number | null>(null, 0.1, 'JSON parsing failed - no deductible extracted', 'vision'),
+          lineItems: this.createExtractedField<any[]>([], 0.1, 'JSON parsing failed - no line items extracted', 'vision')
         };
         
         // Try to extract some basic info from the raw text
