@@ -203,23 +203,57 @@ While the infrastructure is solid, we've identified a critical accuracy issue:
 
 ---
 
+---
+
+### Session: Error Resolution and System Improvements
+**Date**: June 10, 2025 (continued)
+**Focus**: Fixing Mistral OCR API errors and improving system reliability
+
+#### Issues Addressed:
+
+1. **Mistral OCR API Format Error**
+   - **Problem**: API returning 422 error - expects image mime types, not PDF
+   - **Attempted Fixes**:
+     - Changed from `type: 'document'` to `type: 'image_url'` ✅
+     - Simplified `image_url` structure from object to string ✅
+     - Enhanced error logging for better debugging ✅
+   - **Status**: Still failing - Mistral enforces `data:image/<format>` mime types only
+   - **Next Steps**: Need to either convert PDF to images first or use different API endpoint
+
+2. **Roof Report Pitch Extraction** ✅ FIXED
+   - **Problem**: Pitch validation failing when AI returns numeric values
+   - **Solution**: Convert numeric pitch to string before validation
+   - **Result**: Roof report confidence improved from 0.448 to 0.79
+
+3. **Discrepancy Analysis Confidence**
+   - **Current**: 0.29-0.33 (below 0.65 threshold)
+   - **Analysis**: Working as designed but may be too conservative
+   - **Reduced warnings**: From 5 to 3-4 per run
+
+#### System Performance:
+- Job completion: ~68-72 seconds
+- All agents executing successfully
+- Graceful fallback when Mistral fails
+- No supplement items needed (estimate already complete)
+
+---
+
 ## 🎯 Next Session Priorities
 
-### 1. Test Current Fixes 🧪 **HIGH PRIORITY**
-- Re-run the failing job to verify fixes work
-- Test with various PDF types (text-based, image-based, mixed)
-- Validate that vision processing attempts when available
-- Confirm graceful fallback behavior
+### 1. Fix Mistral OCR Integration 🔥 **HIGH PRIORITY**
+- Option A: Convert PDF to PNG/JPG images before sending to Mistral
+- Option B: Find correct Mistral API endpoint for PDFs
+- Option C: Use different OCR service that supports PDFs directly
 
 ### 2. Debug Supplement Accuracy 🔥 **HIGH PRIORITY**
 - Trace through supplement generation process
 - Validate extracted line items against supplement recommendations
 - Improve AI prompts for better accuracy
 
-### 3. Enhance Tracing 🔍 **MEDIUM PRIORITY**
-- Add detailed AI interaction logging
-- Implement step-by-step workflow tracing  
-- Create debugging dashboard
+### 3. Improve Confidence Scoring 📊 **MEDIUM PRIORITY**
+- Review discrepancy analysis confidence calculation
+- Consider adjusting penalty weights
+- Add configuration for confidence thresholds
 
 ### 4. Performance Optimization ⚡ **LOW PRIORITY**
 - Monitor AI API costs and response times

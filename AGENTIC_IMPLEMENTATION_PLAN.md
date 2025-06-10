@@ -209,10 +209,15 @@
    - Field-specific confidence calculation with validation
 
 ### Next Session Priorities
-1. 🔥 Debug supplement accuracy issues (false "missing" items)
-2. 🔍 Implement comprehensive tracing for AI decision-making
-3. 📋 Test end-to-end workflow with real data
+1. 🔥 Fix Mistral OCR to handle PDFs (convert to images or find correct endpoint)
+2. 🔥 Debug supplement accuracy issues (false "missing" items)
+3. 📊 Review and adjust confidence scoring thresholds
 4. 🧪 Add validation and testing framework
+
+### Known Issues (June 10, 2025)
+1. **Mistral OCR** - Expects image mime types only, not PDFs
+2. **Discrepancy Analysis** - Low confidence scores (0.29-0.33)
+3. **Pitch Extraction** - ✅ FIXED (converts numeric to string)
 
 ### Cross-Reference
 See [DEVELOPMENT_NOTES.md](./DEVELOPMENT_NOTES.md) for detailed session logs and milestone documentation.
