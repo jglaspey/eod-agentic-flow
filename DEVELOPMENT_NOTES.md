@@ -100,7 +100,7 @@ While the infrastructure is solid, we've identified a critical accuracy issue:
 ## 🔍 Development Session Log
 
 ### Session: Serverless Deployment Fixes & Error Handling
-**Date**: Current Session  
+**Date**: June 10, 2025
 **Focus**: Fixing EstimateExtractorAgent failures in serverless environment
 
 #### Problem Diagnosed:
@@ -143,6 +143,63 @@ While the infrastructure is solid, we've identified a critical accuracy issue:
 #### Documentation Updates:
 - ✅ Updated `AGENTIC_IMPLEMENTATION_PLAN.md` with completed serverless fixes
 - ✅ Added cross-references between planning and session documentation
+
+---
+
+### Session: Mistral OCR Confidence Improvements
+**Date**: June 10, 2025 (continued)
+**Focus**: Enhancing Mistral OCR extraction confidence and reliability
+
+#### Problems Identified:
+1. Fixed confidence score (0.85) regardless of extraction quality
+2. No line item extraction in Mistral OCR
+3. Limited error context and recovery
+4. No validation of extracted data quality
+
+#### Improvements Implemented:
+
+1. **Enhanced Mistral OCR Prompt** (EstimateExtractorAgent.ts:1015-1052)
+   - ✅ Added line item extraction to capture roofing components
+   - ✅ Included extraction quality metadata (documentReadability, fieldsFound, confidence)
+   - ✅ More structured response format with confidence indicators
+
+2. **Dynamic Confidence Scoring** (EstimateExtractorAgent.ts:998-1119)
+   - ✅ `calculateMistralOCRConfidence()` - Base confidence from extraction quality
+   - ✅ `calculateFieldSpecificConfidence()` - Field-level confidence adjustments
+   - ✅ Considers document readability, fields found, and data validation
+   - ✅ Line item quality assessment based on count and validity
+
+3. **Improved Error Handling** (EstimateExtractorAgent.ts:1216-1445)
+   - ✅ Specific handling for HTTP status codes (429, 401, 500+)
+   - ✅ Network error detection with clear messaging
+   - ✅ 30-second timeout using AbortController
+   - ✅ Comprehensive error logging with context
+
+4. **JSON Parsing Fallback** (EstimateExtractorAgent.ts:1357-1417)
+   - ✅ Regex-based extraction when JSON parsing fails
+   - ✅ Returns low-confidence results instead of throwing errors
+   - ✅ Attempts to extract critical fields from raw response
+
+5. **Enhanced Response Processing** (EstimateExtractorAgent.ts:1113-1205)
+   - ✅ Markdown code block removal for cleaner parsing
+   - ✅ Line item formatting to standard structure
+   - ✅ Field-specific confidence based on validation
+   - ✅ Comprehensive logging of extraction results
+
+#### Key Benefits:
+- **Higher Accuracy**: Line items now extracted for better supplement analysis
+- **Better Confidence**: Scores reflect actual extraction quality
+- **Improved Reliability**: Graceful error handling prevents job failures
+- **Enhanced Debugging**: Detailed logging throughout the process
+
+#### Technical Details:
+- Confidence ranges from 0.1 to 0.95 based on multiple factors
+- Field validation includes format checking (addresses, claim numbers)
+- Value range validation for monetary fields (RCV, ACV, deductible)
+- Line item quality based on description, quantity, and unit presence
+
+#### Files Modified:
+- `src/agents/EstimateExtractorAgent.ts` - Comprehensive Mistral OCR improvements
 
 ---
 

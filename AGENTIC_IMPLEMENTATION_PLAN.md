@@ -70,6 +70,10 @@
   - [x] Added direct PDF processing capability via Mistral Pixtral model
   - [x] Implemented extractFieldsFromMistralOCR method for serverless compatibility
   - [x] Enhanced logging to track Mistral OCR vs other extraction methods
+  - [x] **Enhanced Confidence Scoring** - Dynamic calculation based on extraction quality
+  - [x] **Line Item Extraction** - Added support for extracting estimate line items
+  - [x] **Improved Error Handling** - Timeout, rate limits, and network errors
+  - [x] **JSON Parsing Fallback** - Regex extraction when JSON parsing fails
 
 - [x] **File Upload Optimization** ✅ (June 10, 2025)
   - [x] Increased file size limits to 4MB per file, 4.2MB total
@@ -185,18 +189,24 @@
 
 ## 📝 NOTES
 
-### Recent Session Accomplishments (Current)
+### Recent Session Accomplishments (June 10, 2025)
 1. ✅ Implemented comprehensive logging system with LogStreamer
 2. ✅ Created SSE endpoint for real-time job monitoring
 3. ✅ Integrated AIOrchestrator with agent workflow
 4. ✅ Updated SupplementGeneratorAgent to use improved analysis
 5. ✅ Added Xactimate code integration and lookup
 6. ✅ Enhanced error handling and type safety across agents
-7. ✅ **Serverless Deployment Fixes** (Latest Session)
+7. ✅ **Serverless Deployment Fixes**
    - Fixed vision processing availability checks in EstimateExtractorAgent
    - Improved text extraction quality thresholds for low-quality PDFs
    - Added graceful fallback handling when both text and vision extraction fail
    - Enhanced error handling to prevent complete job failures
+8. ✅ **Mistral OCR Confidence Improvements**
+   - Implemented dynamic confidence scoring based on extraction quality
+   - Added line item extraction for complete estimate analysis
+   - Enhanced error handling with timeouts and specific error messages
+   - Added JSON parsing fallback with regex extraction
+   - Field-specific confidence calculation with validation
 
 ### Next Session Priorities
 1. 🔥 Debug supplement accuracy issues (false "missing" items)

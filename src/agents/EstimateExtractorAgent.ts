@@ -993,6 +993,132 @@ If a field is not found or unclear, use null. For numeric fields, return only th
   }
 
   /**
+   * Calculate confidence score based on Mistral OCR extraction quality
+   */
+  private calculateMistralOCRConfidence(parsed: any): number {
+    let baseConfidence = 0.7; // Start with a reasonable base for Mistral OCR
+
+    // Adjust based on extraction quality if provided
+    if (parsed.extractionQuality) {
+      const { documentReadability, fieldsFound, confidence } = parsed.extractionQuality;
+      
+      // Document readability impact
+      if (documentReadability === 'high') baseConfidence += 0.15;
+      else if (documentReadability === 'medium') baseConfidence += 0.05;
+      else if (documentReadability === 'low') baseConfidence -= 0.1;
+      
+      // Fields found impact
+      const expectedFields = 7; // Not counting line items
+      const fieldRatio = Math.min(1, (fieldsFound || 0) / expectedFields);
+      baseConfidence += fieldRatio * 0.1;
+      
+      // Overall confidence from model
+      if (confidence === 'high') baseConfidence += 0.05;
+      else if (confidence === 'low') baseConfidence -= 0.05;
+    }
+
+    // Check for critical fields presence
+    const criticalFields = ['propertyAddress', 'claimNumber', 'totalRCV'];
+    const criticalFieldsFound = criticalFields.filter(field => 
+      parsed[field] !== null && parsed[field] !== undefined && parsed[field] !== ''
+    ).length;
+    
+    baseConfidence += (criticalFieldsFound / criticalFields.length) * 0.1;
+
+    return Math.min(0.95, Math.max(0.3, baseConfidence));
+  }
+
+  /**
+   * Calculate field-specific confidence scores
+   */
+  private calculateFieldSpecificConfidence(parsed: any, baseConfidence: number): Record<string, number> {
+    const confidences: Record<string, number> = {};
+
+    // Property Address
+    confidences.address = baseConfidence;
+    if (parsed.propertyAddress && this.isValidAddress(parsed.propertyAddress)) {
+      confidences.address += 0.1;
+    } else if (!parsed.propertyAddress) {
+      confidences.address -= 0.2;
+    }
+
+    // Claim Number
+    confidences.claim = baseConfidence;
+    if (parsed.claimNumber && this.isValidClaimNumber(parsed.claimNumber)) {
+      confidences.claim += 0.1;
+    } else if (!parsed.claimNumber) {
+      confidences.claim -= 0.15;
+    }
+
+    // Insurance Carrier
+    confidences.carrier = baseConfidence;
+    if (parsed.insuranceCarrier && parsed.insuranceCarrier.length > 3) {
+      confidences.carrier += 0.05;
+    }
+
+    // RCV
+    confidences.rcv = baseConfidence;
+    if (parsed.totalRCV && typeof parsed.totalRCV === 'number' && parsed.totalRCV > 0) {
+      if (parsed.totalRCV > 1000 && parsed.totalRCV < 500000) {
+        confidences.rcv += 0.1; // Reasonable range
+      }
+    } else {
+      confidences.rcv -= 0.2;
+    }
+
+    // ACV
+    confidences.acv = baseConfidence * 0.9; // Slightly lower as it's often missing
+    if (parsed.totalACV && typeof parsed.totalACV === 'number' && parsed.totalACV > 0) {
+      if (parsed.totalRCV && parsed.totalACV <= parsed.totalRCV) {
+        confidences.acv += 0.1; // Valid relationship with RCV
+      }
+    }
+
+    // Deductible
+    confidences.deductible = baseConfidence * 0.85;
+    if (parsed.deductible && typeof parsed.deductible === 'number' && parsed.deductible > 0) {
+      if (parsed.deductible >= 500 && parsed.deductible <= 10000) {
+        confidences.deductible += 0.05; // Common deductible range
+      }
+    }
+
+    // Date of Loss
+    confidences.dateOfLoss = baseConfidence * 0.8;
+    if (parsed.dateOfLoss) {
+      try {
+        const date = new Date(parsed.dateOfLoss);
+        if (!isNaN(date.getTime()) && date < new Date() && date > new Date('2020-01-01')) {
+          confidences.dateOfLoss += 0.1; // Valid recent date
+        }
+      } catch {
+        confidences.dateOfLoss -= 0.1;
+      }
+    }
+
+    // Line Items
+    confidences.lineItems = 0.3; // Base for line items
+    if (parsed.lineItems && Array.isArray(parsed.lineItems)) {
+      if (parsed.lineItems.length > 0) {
+        confidences.lineItems = Math.min(0.8, 0.4 + (parsed.lineItems.length * 0.05));
+        
+        // Check quality of line items
+        const validItems = parsed.lineItems.filter((item: any) => 
+          item.description && item.quantity > 0 && item.unit
+        ).length;
+        
+        confidences.lineItems += (validItems / parsed.lineItems.length) * 0.2;
+      }
+    }
+
+    // Ensure all confidences are within valid range
+    Object.keys(confidences).forEach(key => {
+      confidences[key] = Math.min(0.95, Math.max(0.1, confidences[key]));
+    });
+
+    return confidences;
+  }
+
+  /**
    * Extract fields from PDF using Mistral OCR
    */
   public async extractFieldsFromMistralOCR(pdfBuffer: Buffer, context: TaskContext): Promise<EstimateFieldExtractions> {
@@ -1013,7 +1139,7 @@ If a field is not found or unclear, use null. For numeric fields, return only th
     const dataUrl = `data:application/pdf;base64,${base64Pdf}`
 
     const prompt = `
-Analyze this insurance estimate PDF document and extract the following information. Prioritize accuracy.
+Analyze this insurance estimate PDF document and extract the following information. Prioritize accuracy and provide confidence indicators.
 
 1.  **Property Address**: The physical address of the property where the damage occurred. Exclude any mailing addresses for the insured or insurer if different.
 2.  **Claim Number**: The unique identifier assigned to this insurance claim.
@@ -1022,6 +1148,7 @@ Analyze this insurance estimate PDF document and extract the following informati
 5.  **Total ACV (Actual Cash Value)**: The value of the property at the time of loss, considering depreciation. If not explicitly stated, it might be the same as RCV or RCV minus deductible/depreciation.
 6.  **Deductible Amount**: The amount the policyholder is responsible for paying before the insurance coverage applies.
 7.  **Date of Loss**: The date when the damage or loss occurred.
+8.  **Line Items**: Extract the main line items from the estimate, including description, quantity, unit, and price. Focus on major roofing components.
 
 Return the information ONLY in this exact JSON format. Do not add any commentary before or after the JSON block:
 {
@@ -1031,10 +1158,23 @@ Return the information ONLY in this exact JSON format. Do not add any commentary
   "totalRCV": numeric_value_or_null,
   "totalACV": numeric_value_or_null,
   "deductible": numeric_value_or_null,
-  "dateOfLoss": "YYYY-MM-DD_or_null"
+  "dateOfLoss": "YYYY-MM-DD_or_null",
+  "lineItems": [
+    {
+      "description": "string",
+      "quantity": numeric_value,
+      "unit": "string",
+      "price": numeric_value_or_null
+    }
+  ],
+  "extractionQuality": {
+    "documentReadability": "high|medium|low",
+    "fieldsFound": number_of_fields_successfully_extracted,
+    "confidence": "high|medium|low"
+  }
 }
 
-If a field is not found or unclear, use null. For numeric fields, return only the number, no currency symbols or text.
+If a field is not found or unclear, use null. For numeric fields, return only the number, no currency symbols or text. For line items, extract at least the major components visible in the estimate.
     `
 
     const requestBody = {
@@ -1064,25 +1204,55 @@ If a field is not found or unclear, use null. For numeric fields, return only th
     });
 
     try {
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
       const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.mistralApiKey}`
         },
-        body: JSON.stringify(requestBody)
-      })
+        body: JSON.stringify(requestBody),
+        signal: controller.signal
+      }).finally(() => clearTimeout(timeoutId))
 
       if (!response.ok) {
-        throw new Error(`Mistral API error: ${response.status} ${response.statusText}`)
+        const errorBody = await response.text();
+        logStreamer.logError(jobId, 'mistral_ocr_api_error_response', `Mistral API error response: ${response.status}`, {
+          status: response.status,
+          statusText: response.statusText,
+          errorBody: errorBody.substring(0, 500) // Log first 500 chars of error
+        });
+        
+        // Specific error handling
+        if (response.status === 429) {
+          throw new Error('Mistral API rate limit exceeded. Please try again later.');
+        } else if (response.status === 401) {
+          throw new Error('Mistral API authentication failed. Please check your API key.');
+        } else if (response.status >= 500) {
+          throw new Error(`Mistral API server error: ${response.status}. Service may be temporarily unavailable.`);
+        } else {
+          throw new Error(`Mistral API error: ${response.status} ${response.statusText}. ${errorBody.substring(0, 200)}`);
+        }
       }
 
       const result = await response.json()
       const extractedText = result.choices?.[0]?.message?.content || ''
       
+      if (!extractedText) {
+        logStreamer.logError(jobId, 'mistral_ocr_empty_response', 'Mistral OCR returned empty response', {
+          hasChoices: !!result.choices,
+          choicesLength: result.choices?.length || 0
+        });
+        throw new Error('Mistral OCR returned empty response. The document may not be readable.');
+      }
+      
       logStreamer.logDebug(jobId, 'mistral_ocr_api_call_complete', 'Mistral OCR API call completed', {
         responseLength: extractedText.length,
-        model: 'pixtral-12b-2409'
+        model: 'pixtral-12b-2409',
+        usage: result.usage // Log token usage if available
       });
 
       this.log(LogLevel.INFO, 'mistral-ocr-analysis-complete', 
@@ -1096,19 +1266,80 @@ If a field is not found or unclear, use null. For numeric fields, return only th
           responseLength: extractedText.length 
         });
         
-        const parsed = JSON.parse(extractedText.replace(/,(?=\s*\})/g, ''));
+        // Clean the response and parse JSON
+        let cleanedResponse = extractedText.trim();
+        // Remove any markdown code blocks if present
+        if (cleanedResponse.includes('```')) {
+          cleanedResponse = cleanedResponse.replace(/```json\s*/g, '').replace(/\s*```/g, '');
+          cleanedResponse = cleanedResponse.replace(/```\s*/g, '').replace(/\s*```/g, '');
+        }
         
-        const confidence = 0.85; // Base confidence for Mistral OCR
+        const parsed = JSON.parse(cleanedResponse.replace(/,(?=\s*\})/g, ''));
+        
+        // Calculate dynamic confidence based on extraction quality
+        const baseConfidence = this.calculateMistralOCRConfidence(parsed);
+        
+        // Field-specific confidence adjustments
+        const fieldConfidences = this.calculateFieldSpecificConfidence(parsed, baseConfidence);
+        
+        // Format line items for the standard structure
+        const formattedLineItems = Array.isArray(parsed.lineItems) ? 
+          parsed.lineItems.map((item: any) => ({
+            description: item.description || '',
+            quantity: item.quantity || 0,
+            unit: item.unit || 'EA',
+            price: item.price || 0
+          })) : [];
         
         const result = {
-          propertyAddress: this.createExtractedField(parsed.propertyAddress, confidence, 'Extracted via Mistral OCR', 'vision'),
-          claimNumber: this.createExtractedField(parsed.claimNumber, confidence, 'Extracted via Mistral OCR', 'vision'),
-          insuranceCarrier: this.createExtractedField(parsed.insuranceCarrier, confidence, 'Extracted via Mistral OCR', 'vision'),
-          dateOfLoss: this.createExtractedField(parsed.dateOfLoss ? new Date(parsed.dateOfLoss) : null, confidence * 0.8, 'Extracted via Mistral OCR', 'vision'),
-          totalRCV: this.createExtractedField(parsed.totalRCV, confidence, 'Extracted via Mistral OCR', 'vision'),
-          totalACV: this.createExtractedField(parsed.totalACV, confidence * 0.9, 'Extracted via Mistral OCR', 'vision'),
-          deductible: this.createExtractedField(parsed.deductible, confidence * 0.9, 'Extracted via Mistral OCR', 'vision'),
-          lineItems: this.createExtractedField([], 0.3, 'Line items not extracted by basic OCR prompt', 'vision')
+          propertyAddress: this.createExtractedField(
+            parsed.propertyAddress, 
+            fieldConfidences.address, 
+            'Extracted via Mistral OCR', 
+            'vision'
+          ),
+          claimNumber: this.createExtractedField(
+            parsed.claimNumber, 
+            fieldConfidences.claim, 
+            'Extracted via Mistral OCR', 
+            'vision'
+          ),
+          insuranceCarrier: this.createExtractedField(
+            parsed.insuranceCarrier, 
+            fieldConfidences.carrier, 
+            'Extracted via Mistral OCR', 
+            'vision'
+          ),
+          dateOfLoss: this.createExtractedField(
+            parsed.dateOfLoss ? new Date(parsed.dateOfLoss) : null, 
+            fieldConfidences.dateOfLoss, 
+            'Extracted via Mistral OCR', 
+            'vision'
+          ),
+          totalRCV: this.createExtractedField(
+            parsed.totalRCV, 
+            fieldConfidences.rcv, 
+            'Extracted via Mistral OCR', 
+            'vision'
+          ),
+          totalACV: this.createExtractedField(
+            parsed.totalACV, 
+            fieldConfidences.acv, 
+            'Extracted via Mistral OCR', 
+            'vision'
+          ),
+          deductible: this.createExtractedField(
+            parsed.deductible, 
+            fieldConfidences.deductible, 
+            'Extracted via Mistral OCR', 
+            'vision'
+          ),
+          lineItems: this.createExtractedField(
+            formattedLineItems, 
+            fieldConfidences.lineItems, 
+            `Extracted ${formattedLineItems.length} line items via Mistral OCR`, 
+            'vision'
+          )
         };
         
         logStreamer.logDebug(jobId, 'extract_fields_from_mistral_ocr_complete', 'EstimateExtractorAgent.extractFieldsFromMistralOCR() completed', {
@@ -1119,21 +1350,98 @@ If a field is not found or unclear, use null. For numeric fields, return only th
             totalRCV: parsed.totalRCV,
             totalACV: parsed.totalACV,
             deductible: parsed.deductible,
-            dateOfLoss: parsed.dateOfLoss
+            dateOfLoss: parsed.dateOfLoss,
+            lineItemCount: formattedLineItems.length
           },
+          extractionQuality: parsed.extractionQuality,
+          baseConfidence: baseConfidence,
           overallConfidence: this.getOverallConfidence(result)
         });
         
         return result;
       } catch (parseError) {
-        this.log(LogLevel.WARN, 'mistral-ocr-parse-failed', `Failed to parse Mistral OCR JSON response: ${extractedText}. Error: ${parseError}`)
-        throw new Error(`Failed to parse Mistral OCR response. Raw: ${extractedText}. Error: ${parseError}`)
+        this.log(LogLevel.WARN, 'mistral-ocr-parse-failed', `Failed to parse Mistral OCR JSON response. Error: ${parseError}`)
+        logStreamer.logError(jobId, 'mistral_ocr_json_parse_error', 'Failed to parse Mistral OCR JSON response', {
+          error: parseError,
+          responsePreview: extractedText.substring(0, 200)
+        });
+        
+        // Attempt basic text extraction as fallback
+        logStreamer.logStep(jobId, 'mistral_ocr_fallback_extraction', 'Attempting fallback extraction from raw Mistral OCR response');
+        
+        // Create a minimal result with low confidence
+        const fallbackResult = {
+          propertyAddress: this.createExtractedField(null, 0.2, 'JSON parsing failed - no address extracted', 'vision'),
+          claimNumber: this.createExtractedField(null, 0.2, 'JSON parsing failed - no claim number extracted', 'vision'),
+          insuranceCarrier: this.createExtractedField(null, 0.2, 'JSON parsing failed - no carrier extracted', 'vision'),
+          dateOfLoss: this.createExtractedField(null, 0.1, 'JSON parsing failed - no date extracted', 'vision'),
+          totalRCV: this.createExtractedField(null, 0.2, 'JSON parsing failed - no RCV extracted', 'vision'),
+          totalACV: this.createExtractedField(null, 0.1, 'JSON parsing failed - no ACV extracted', 'vision'),
+          deductible: this.createExtractedField(null, 0.1, 'JSON parsing failed - no deductible extracted', 'vision'),
+          lineItems: this.createExtractedField([], 0.1, 'JSON parsing failed - no line items extracted', 'vision')
+        };
+        
+        // Try to extract some basic info from the raw text
+        const addressMatch = extractedText.match(/propertyAddress["\s:]+([^",\n]+)/i);
+        if (addressMatch) {
+          fallbackResult.propertyAddress = this.createExtractedField(
+            addressMatch[1].trim(), 
+            0.4, 
+            'Extracted via regex fallback from Mistral OCR', 
+            'vision'
+          );
+        }
+        
+        const claimMatch = extractedText.match(/claimNumber["\s:]+([^",\n]+)/i);
+        if (claimMatch) {
+          fallbackResult.claimNumber = this.createExtractedField(
+            claimMatch[1].trim(), 
+            0.4, 
+            'Extracted via regex fallback from Mistral OCR', 
+            'vision'
+          );
+        }
+        
+        const rcvMatch = extractedText.match(/totalRCV["\s:]+(\d+(?:\.\d+)?)/i);
+        if (rcvMatch) {
+          fallbackResult.totalRCV = this.createExtractedField(
+            parseFloat(rcvMatch[1]), 
+            0.4, 
+            'Extracted via regex fallback from Mistral OCR', 
+            'vision'
+          );
+        }
+        
+        logStreamer.logDebug(jobId, 'mistral_ocr_fallback_complete', 'Fallback extraction completed with minimal results', {
+          foundAddress: !!addressMatch,
+          foundClaim: !!claimMatch,
+          foundRCV: !!rcvMatch
+        });
+        
+        return fallbackResult;
       }
 
-    } catch (error) {
-      this.log(LogLevel.ERROR, 'mistral-ocr-api-error', `Mistral OCR API call failed: ${error}`, { taskId: context.taskId, error })
-      logStreamer.logError(jobId, 'mistral_ocr_api_error', `Mistral OCR API call failed: ${error}`, { error });
-      throw error
+    } catch (error: any) {
+      // Handle specific error types
+      if (error.name === 'AbortError') {
+        this.log(LogLevel.ERROR, 'mistral-ocr-timeout', 'Mistral OCR API call timed out after 30 seconds', { taskId: context.taskId })
+        logStreamer.logError(jobId, 'mistral_ocr_timeout', 'Mistral OCR API call timed out', { 
+          timeout: 30000,
+          pdfSize: pdfBuffer.length 
+        });
+        throw new Error('Mistral OCR request timed out. The PDF may be too large or complex.');
+      } else if (error.message?.includes('fetch failed')) {
+        this.log(LogLevel.ERROR, 'mistral-ocr-network-error', 'Network error calling Mistral OCR API', { taskId: context.taskId, error })
+        logStreamer.logError(jobId, 'mistral_ocr_network_error', 'Network error calling Mistral OCR API', { error: error.message });
+        throw new Error('Network error connecting to Mistral OCR. Please check your internet connection.');
+      } else {
+        this.log(LogLevel.ERROR, 'mistral-ocr-api-error', `Mistral OCR API call failed: ${error}`, { taskId: context.taskId, error })
+        logStreamer.logError(jobId, 'mistral_ocr_api_error', `Mistral OCR API call failed: ${error}`, { 
+          error: error.message,
+          stack: error.stack 
+        });
+        throw error;
+      }
     }
   }
 } 

@@ -9,6 +9,7 @@ An intelligent system that analyzes roofing estimates and inspection reports to 
 - Supabase account
 - OpenAI API key
 - Anthropic API key (optional)
+- Mistral API key (optional, for enhanced OCR)
 
 ### 1. Clone and Install
 ```bash
@@ -28,6 +29,7 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 # AI APIs
 OPENAI_API_KEY=your_openai_key
 ANTHROPIC_API_KEY=your_anthropic_key
+MISTRAL_API_KEY=your_mistral_key  # For enhanced OCR processing
 
 # App
 NEXTAUTH_SECRET=your_nextauth_secret
@@ -52,11 +54,16 @@ Visit `http://localhost:3000`
 1. **File Upload**: User uploads estimate PDF and roof report PDF
 2. **OrchestrationAgent**: Coordinates the entire process
 3. **EstimateExtractorAgent**: Extracts line items, totals, and metadata from estimates
+   - Text extraction for standard PDFs
+   - Mistral OCR for image-based PDFs with dynamic confidence scoring
+   - Fallback mechanisms for challenging documents
 4. **RoofReportExtractorAgent**: Extracts roof measurements and damage details
 5. **SupplementGeneratorAgent**: Analyzes discrepancies and suggests supplements using Xactimate codes
 
 ### Key Features
 - **Real-time Logging**: Live job progress via Server-Sent Events
+- **Mistral OCR Integration**: Advanced OCR with line item extraction and quality indicators
+- **Dynamic Confidence Scoring**: Field-level validation and quality assessment
 - **Xactimate Code Integration**: Uses standardized roofing codes from `codes.md`
 - **Discrepancy Analysis**: Compares estimate vs. inspection data
 - **Structured Output**: Generates actionable supplement recommendations
