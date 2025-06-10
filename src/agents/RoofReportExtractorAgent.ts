@@ -318,7 +318,11 @@ export class RoofReportExtractorAgent extends Agent {
           0.7, 
           effectiveSource
         );
-        extracted.pitch = this.createExtractedField(parsedResponse.pitch, 0.7, effectiveSource);
+        extracted.pitch = this.createExtractedField(
+          parsedResponse.pitch !== null && parsedResponse.pitch !== undefined ? String(parsedResponse.pitch) : null, 
+          0.7, 
+          effectiveSource
+        );
         extracted.facets = this.createExtractedField(parsedResponse.facets, 0.6, effectiveSource);
         
         this.log(LogLevel.INFO, 'roof-fields-extracted-text', `Roof fields extracted from text (source: ${effectiveSource}).`, { jobId, extractedFields: Object.keys(parsedResponse), agentType: this.agentType });
@@ -341,7 +345,11 @@ export class RoofReportExtractorAgent extends Agent {
       0.8, 
       'vision'
     );
-    extracted.pitch = this.createExtractedField(visionJson.pitch, 0.8, 'vision');
+    extracted.pitch = this.createExtractedField(
+      visionJson.pitch !== null && visionJson.pitch !== undefined ? String(visionJson.pitch) : null, 
+      0.8, 
+      'vision'
+    );
     extracted.facets = this.createExtractedField(visionJson.facets, 0.7, 'vision');
     this.log(LogLevel.INFO, 'roof-fields-parsed-vision', `Roof fields parsed from vision output.`, { parsedFields: Object.keys(extracted).filter(k => (extracted as any)[k]?.value !== null), agentType: this.agentType });
     return extracted;
