@@ -1230,7 +1230,16 @@ If a field is not found or unclear, use null. For numeric fields, return only th
         logStreamer.logError(jobId, 'mistral_ocr_api_error_response', `Mistral API error response: ${response.status}`, {
           status: response.status,
           statusText: response.statusText,
-          errorBody: errorBody.substring(0, 500) // Log first 500 chars of error
+          errorBody: errorBody.substring(0, 1000), // Log first 1000 chars of error
+          requestPreview: {
+            model: requestBody.model,
+            messageStructure: requestBody.messages[0]?.content?.map((c: any) => ({
+              type: c.type,
+              hasImageUrl: !!c.image_url,
+              imageUrlType: typeof c.image_url,
+              imageUrlPrefix: c.image_url?.substring?.(0, 50)
+            }))
+          }
         });
         
         // Specific error handling
