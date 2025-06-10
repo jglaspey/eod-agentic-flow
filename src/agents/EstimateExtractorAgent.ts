@@ -1188,8 +1188,8 @@ If a field is not found or unclear, use null. For numeric fields, return only th
               text: prompt
             },
             {
-              type: 'document',
-              document_url: dataUrl
+              type: 'image_url',
+              image_url: dataUrl
             }
           ]
         }
@@ -1200,7 +1200,14 @@ If a field is not found or unclear, use null. For numeric fields, return only th
 
     logStreamer.logDebug(jobId, 'mistral_ocr_api_call_start', 'Calling Mistral OCR API', { 
       model: 'pixtral-12b-2409',
-      pdfSize: pdfBuffer.length
+      pdfSize: pdfBuffer.length,
+      dataUrlLength: dataUrl.length,
+      requestBodyStructure: {
+        hasModel: !!requestBody.model,
+        hasMessages: !!requestBody.messages,
+        messageCount: requestBody.messages.length,
+        contentTypes: requestBody.messages[0]?.content?.map((c: any) => c.type)
+      }
     });
 
     try {
