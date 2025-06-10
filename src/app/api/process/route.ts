@@ -52,6 +52,21 @@ export async function POST(request: NextRequest) {
         )
       }
 
+      // Validate file sizes (Vercel limit is ~4.5MB per request)
+      const maxFileSize = 2 * 1024 * 1024 // 2MB per file to be safe
+      if (estimateFile.size > maxFileSize) {
+        return NextResponse.json(
+          { error: `Estimate file too large. Maximum size is ${maxFileSize / 1024 / 1024}MB` },
+          { status: 413 }
+        )
+      }
+      if (roofReportFile && roofReportFile.size > maxFileSize) {
+        return NextResponse.json(
+          { error: `Roof report file too large. Maximum size is ${maxFileSize / 1024 / 1024}MB` },
+          { status: 413 }
+        )
+      }
+
       jobId = uuidv4()
     }
 
