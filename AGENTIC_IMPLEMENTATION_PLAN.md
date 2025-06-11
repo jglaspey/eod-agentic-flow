@@ -75,6 +75,19 @@
   - [x] **Improved Error Handling** - Timeout, rate limits, and network errors
   - [x] **JSON Parsing Fallback** - Regex extraction when JSON parsing fails
 
+- [x] **Mistral OCR Integration (PIXTRAL – DEPRECATED)** ⚠️
+  - Initial attempt using Pixtral vision model via `image_url`
+  - Caused 422 errors for PDFs; kept for historical context only
+
+- [ ] **Mistral OCR Integration – Basic OCR (REWORK)** 🚧 (June 11, 2025)
+  - [ ] Switch from Pixtral (image-only) to **Basic OCR** endpoint (`/v1/ocr`, model `mistral-ocr-latest`)
+  - [ ] Send PDF as `document_url` (either signed URL or `data:application/pdf;base64,…`)
+  - [ ] Parse `pages[].markdown` returned and feed into existing text-extraction pipeline
+  - [ ] Remove `image_url`/Pixtral logic & 422 error handling
+  - [ ] Update `EstimateExtractorAgent.extractFieldsFromMistralOCR()` accordingly
+  - [ ] Add unit tests for OCR success & fallback
+  - [ ] Update logging to reflect Basic OCR usage
+
 - [x] **File Upload Optimization** ✅ (June 10, 2025)
   - [x] Increased file size limits to 4MB per file, 4.2MB total
   - [x] Added comprehensive file size validation on client and server

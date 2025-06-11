@@ -155,6 +155,8 @@ While the infrastructure is solid, we've identified a critical accuracy issue:
 2. No line item extraction in Mistral OCR
 3. Limited error context and recovery
 4. No validation of extracted data quality
+5. **Incorrect endpoint** – Used Pixtral vision model which only accepts image formats; causes 422 when PDFs are sent.
+   **Resolution:** Will migrate to Basic OCR endpoint (`/v1/ocr`, model `mistral-ocr-latest`) which supports PDFs via `document_url`.
 
 #### Improvements Implemented:
 
@@ -203,8 +205,6 @@ While the infrastructure is solid, we've identified a critical accuracy issue:
 
 ---
 
----
-
 ### Session: Error Resolution and System Improvements
 **Date**: June 10, 2025 (continued)
 **Focus**: Fixing Mistral OCR API errors and improving system reliability
@@ -212,13 +212,10 @@ While the infrastructure is solid, we've identified a critical accuracy issue:
 #### Issues Addressed:
 
 1. **Mistral OCR API Format Error**
-   - **Problem**: API returning 422 error - expects image mime types, not PDF
-   - **Attempted Fixes**:
-     - Changed from `type: 'document'` to `type: 'image_url'` ✅
-     - Simplified `image_url` structure from object to string ✅
-     - Enhanced error logging for better debugging ✅
-   - **Status**: Still failing - Mistral enforces `data:image/<format>` mime types only
-   - **Next Steps**: Need to either convert PDF to images first or use different API endpoint
+   - **Problem**: API returning 422 error - expects image mime types, not PDFs
+   - **Root Cause**: Using Pixtral (image-only) endpoint
+   - **Solution**: Replace with Basic OCR endpoint using `document_url` (supports PDFs). Implementation scheduled June 11, 2025.
+   - **Action**: Remove image_url code paths; update EstimateExtractorAgent.extractFieldsFromMistralOCR.
 
 2. **Roof Report Pitch Extraction** ✅ FIXED
    - **Problem**: Pitch validation failing when AI returns numeric values
