@@ -8,6 +8,8 @@ import { logStreamer } from '@/lib/log-streamer'
 import { SupplementItem, EstimateData, RoofData, LineItem } from '@/types'
 import { generateAndSaveReport } from '@/lib/report-generator'
 
+export const maxDuration = 300;  // Allow up to 5-minute runtime for long-running AI/ocr pipeline (Vercel Pro max for Node.js)
+
 export async function POST(request: NextRequest) {
   try {
     // Check environment variables
