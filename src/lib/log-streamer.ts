@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid'
+import { getSupabaseClient } from './supabase'
 
 /**
  * Defines the structure for a log event.
@@ -49,12 +50,47 @@ export class LogStreamer {
     };
     this.jobLogs.get(jobId)?.push(newLog);
     
+    // Persist to Supabase (fire-and-forget to avoid blocking critical path)
+    this.persistLogToDatabase(jobId, newLog).catch((error) => {
+      // Swallow errors - logging must never fail the job
+      console.warn(`[LogStreamer] Failed to persist log to database for job ${jobId}:`, error);
+    });
+    
     // Notify listeners for this job
     const listeners = this.logListeners.get(jobId);
     if (listeners) {
       listeners.forEach(listener => listener(newLog));
     }
     return newLog;
+  }
+
+  /**
+   * Persists a log event to the Supabase database.
+   * This ensures logs survive Lambda restarts on Vercel.
+   */
+  private async persistLogToDatabase(jobId: string, log: LogEvent): Promise<void> {
+    // Only persist if we have service role key (production/staging environments)
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      return;
+    }
+
+    try {
+      const supabase = getSupabaseClient();
+      await supabase
+        .from('job_logs')
+        .insert({
+          id: log.id,
+          job_id: jobId,
+          ts: log.timestamp.toISOString(),
+          level: log.level,
+          step: log.step,
+          message: log.message,
+          data: log.data ?? null
+        });
+    } catch (error) {
+      // Re-throw to be caught by caller's catch block
+      throw error;
+    }
   }
 
   /**
