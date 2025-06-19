@@ -434,7 +434,10 @@ export class AIOrchestrator {
       quantity: quantity,
       unit: unit,
       confidence_score: confidence,
-      calculation_details: suggestion.calculation_details || suggestion.details || undefined
+      calculation_details: suggestion.calculation_details || suggestion.details || undefined,
+      source_system: 'ai_suggestion' as const,
+      business_rule_applied: undefined,
+      validation_status: 'pending' as const
     }
 
     logStreamer.logDebug(this.jobId, step, `Item ${index + 1}: Created supplement`, { 

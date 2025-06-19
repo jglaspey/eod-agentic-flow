@@ -147,7 +147,12 @@ export class SupplementGeneratorAgent extends Agent {
         await this.writeJobLog(jobId, 'multi-pass-1-complete', LogLevel.INFO, `Multi-Pass System: Pass 1 Complete - Generated ${aiSupplements.length} AI suggestions`, {
           pass: 1,
           aiSupplementCount: aiSupplements.length,
-          items: aiSupplements.map(s => s.line_item)
+          items: aiSupplements.map(s => s.line_item),
+          aiSupplementsDebug: aiSupplements.map(s => ({
+            line_item: s.line_item,
+            source_system: s.source_system,
+            has_source_system: !!s.source_system
+          }))
         });
       } catch (aiError: any) {
         this.log(LogLevel.ERROR, 'pass-1-failed', `Pass 1 AI suggestions failed: ${aiError.message}`, { error: aiError.message, agentType: this.agentType });
@@ -173,10 +178,35 @@ export class SupplementGeneratorAgent extends Agent {
       let rulesResults: any[] = [];
       
       try {
+        this.log(LogLevel.DEBUG, 'business-rules-pre-eval', `About to evaluate business rules for job ${jobId}`, {
+          hasJobData: !!jobData,
+          estimateLineItemsCount: actualEstimateLineItems?.length || 0,
+          aiSuggestionsCount: aiSupplements?.length || 0,
+          jobDataKeys: Object.keys(jobData || {}),
+          agentType: this.agentType
+        });
+
+        await this.writeJobLog(jobId, 'multi-pass-2-debug-start', LogLevel.INFO, `DEBUG: Business rules evaluation starting`, {
+          pass: 2,
+          hasJobData: !!jobData,
+          estimateLineItemsCount: actualEstimateLineItems?.length || 0,
+          aiSuggestionsCount: aiSupplements?.length || 0,
+          eaveLength: jobData?.eave_length,
+          ridgeHipLength: jobData?.ridge_hip_length,
+          rakeLength: jobData?.rake_length
+        });
+
         const rulesEvaluation = businessRulesEngine.evaluateAll({
           jobData,
           estimateLineItems: actualEstimateLineItems,
           aiSuggestions: aiSupplements
+        });
+        
+        this.log(LogLevel.DEBUG, 'business-rules-post-eval', `Business rules evaluation completed for job ${jobId}`, {
+          hasEvaluation: !!rulesEvaluation,
+          newSupplementsCount: rulesEvaluation?.newSupplements?.length || 0,
+          resultsCount: rulesEvaluation?.results?.length || 0,
+          agentType: this.agentType
         });
         
         rulesSupplements = rulesEvaluation.newSupplements;
@@ -192,8 +222,13 @@ export class SupplementGeneratorAgent extends Agent {
         await this.writeJobLog(jobId, 'multi-pass-2-complete', LogLevel.INFO, `Multi-Pass System: Pass 2 Complete - Applied ${rulesResults.length} business rules`, {
           pass: 2,
           newSupplements: rulesSupplements.length,
-          rulesApplied: rulesResults.map(r => ({ rule: r.ruleName, action: r.action })),
-          summary: rulesEvaluation.summary
+          rulesApplied: rulesResults.map(r => ({ rule: r.ruleId, action: r.action })),
+          summary: rulesEvaluation.summary,
+          businessRuleSupplements: rulesSupplements.map(s => ({
+            line_item: s.line_item,
+            source_system: s.source_system,
+            business_rule_applied: s.business_rule_applied
+          }))
         });
         
         issuesOrSuggestions.push(rulesEvaluation.summary);
@@ -203,13 +238,8 @@ export class SupplementGeneratorAgent extends Agent {
         // Continue without business rules supplements
       }
 
-      // Add source attribution to supplements
-      const aiSupplementsWithSource = aiSupplements.map(supplement => ({
-        ...supplement,
-        source_system: 'ai_suggestion' as const,
-        business_rule_applied: undefined,
-        validation_status: 'pending' as const
-      }));
+      // AI supplements now set their own source attribution in createSupplementFromSuggestion()
+      const aiSupplementsWithSource = aiSupplements;
 
       // Business rules now set their own source attribution in createSupplement()
       const rulesSupplementsWithSource = rulesSupplements;
@@ -404,12 +434,26 @@ export class SupplementGeneratorAgent extends Agent {
       if (sortedFinalSupplements.length > 0) {
         try {
           // Debug: Log what we're about to save
-          const itemsToSave = sortedFinalSupplements.map(item => ({ ...item, job_id: jobId }));
+          const itemsToSave = sortedFinalSupplements.map(item => {
+            // Ensure source_system is explicitly set
+            const itemToSave = {
+              ...item,
+              job_id: jobId,
+              // Explicitly set these fields to prevent database defaults from overriding
+              source_system: item.source_system || 'multi_pass_v1',
+              business_rule_applied: item.business_rule_applied || null,
+              validation_status: item.validation_status || 'pending'
+            };
+            return itemToSave;
+          });
+          
           this.log(LogLevel.DEBUG, 'supplement-save-debug', `Saving ${itemsToSave.length} supplements to database`, {
             items: itemsToSave.map(item => ({
               line_item: item.line_item,
               source_system: item.source_system,
-              business_rule_applied: item.business_rule_applied
+              business_rule_applied: item.business_rule_applied,
+              has_source_system: !!item.source_system,
+              source_system_type: typeof item.source_system
             })),
             agentType: this.agentType
           });

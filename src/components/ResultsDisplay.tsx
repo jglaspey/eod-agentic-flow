@@ -94,10 +94,10 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
       )
     }
     
-    // Debug: show what we got if it doesn't match
+    // Default fallback - should not happen with proper attribution
     return (
-      <div className="text-xs text-red-500">
-        DEBUG: {item.source_system || 'undefined'}
+      <div className="text-xs text-gray-500">
+        Unknown Source
       </div>
     )
   }
