@@ -317,7 +317,8 @@ async function processFilesWithNewAgent(
       total_rcv: estimateDataForReport?.totalRCV,
       total_acv: orchestrationOutput?.estimateExtraction?.data?.totalACV?.value,
       deductible: orchestrationOutput?.estimateExtraction?.data?.deductible?.value,
-      roof_area_squares: roofDataForReport?.totalRoofArea,
+      // Convert roof area from square feet to squares (1 square = 100 sq ft)
+      roof_area_squares: roofDataForReport?.totalRoofArea ? roofDataForReport.totalRoofArea / 100 : undefined,
       eave_length: roofDataForReport?.eaveLength,
       rake_length: roofDataForReport?.rakeLength,
       ridge_hip_length: roofDataForReport?.ridgeHipLength,

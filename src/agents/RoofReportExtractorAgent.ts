@@ -514,7 +514,9 @@ export class RoofReportExtractorAgent extends Agent {
     
     // Sanity check for roof area vs linear measurements
     if (result.totalRoofArea?.value && (result.eaveLength?.value || result.rakeLength?.value)) {
-        if ((result.eaveLength?.value || 0) + (result.rakeLength?.value || 0) > (result.totalRoofArea.value * 20)) { // area in squares * 20 ~ linear feet limit (very rough)
+        // totalRoofArea is in squares, linear measurements are in feet
+        // Rough sanity check: sum of eave+rake shouldn't exceed area*20 (very conservative estimate)
+        if ((result.eaveLength?.value || 0) + (result.rakeLength?.value || 0) > (result.totalRoofArea.value * 20)) {
             warnings.push('Sum of eave and rake lengths seems unusually high compared to total roof area.');
             overallConfidence *= 0.9;
         }
@@ -551,7 +553,7 @@ export class RoofReportExtractorAgent extends Agent {
         this.log(LogLevel.WARN, 'roof-config-fetch-error', `Error fetching AI config for ${stepName} or config not found: ${error?.message || 'Not found'}. Using default.`, { agentType: this.agentType });
         configs[stepName] = {
           step_name: stepName,
-          prompt: "Extract all roof measurement values from the following text. Focus on total area, eave, rake, ridge, hip, valley lengths, number of stories, and pitch. Provide output in a structured JSON format with keys like: totalRoofArea, eaveLength, rakeLength, ridgeHipLength, valleyLength, stories, pitch, facets. Ensure all values are numerical where appropriate. If a value is clearly a range (e.g. 6-7/12 pitch), use the lower end or a reasonable average. For stories, if like '1 to 1.5', use 1.5.\n\nTEXT CONTENT TO ANALYZE:\n{{TEXT_CONTENT}}",
+          prompt: "Extract all roof measurement values from the following text. Focus on total area, eave, rake, ridge, hip, valley lengths, number of stories, and pitch. Provide output in a structured JSON format with keys like: totalRoofArea, eaveLength, rakeLength, ridgeHipLength, valleyLength, stories, pitch, facets.\n\nIMPORTANT UNITS:\n- totalRoofArea: Return in roofing squares (1 square = 100 sq ft). If you find area in square feet, divide by 100.\n- All linear measurements (eave, rake, ridge, hip, valley lengths): Return in linear feet (LF)\n- Stories: Return as integer\n- Pitch: Return as string (e.g., '7/12' or '7')\n\nEnsure all values are numerical where appropriate. If a value is clearly a range (e.g. 6-7/12 pitch), use the lower end or a reasonable average. For stories, if like '1 to 1.5', use 1.5.\n\nTEXT CONTENT TO ANALYZE:\n{{TEXT_CONTENT}}",
           model_provider: this.anthropic ? 'anthropic' : 'openai',
           model_name: this.anthropic ? 'claude-3-haiku-20240307' : 'gpt-3.5-turbo', 
           temperature: 0.2,

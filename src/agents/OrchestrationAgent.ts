@@ -246,7 +246,7 @@ export class OrchestrationAgent extends Agent {
           total_acv: estimateData.totalACV?.value || undefined,
           deductible: estimateData.deductible?.value || undefined,
           // From Roof Report (if available)
-          roof_area_squares: roofData?.totalRoofArea?.value || undefined,
+          roof_area_squares: roofData?.totalRoofArea?.value ? roofData.totalRoofArea.value / 100 : undefined,
           eave_length: roofData?.eaveLength?.value || estimateData.eaveLength?.value || undefined,
           rake_length: roofData?.rakeLength?.value || estimateData.rakeLength?.value || undefined,
           ridge_hip_length: roofData?.ridgeHipLength?.value || estimateData.ridgeAndHipLength?.value || undefined,
