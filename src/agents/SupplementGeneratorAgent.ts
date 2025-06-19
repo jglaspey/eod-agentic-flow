@@ -25,6 +25,8 @@ import { OpenAI } from 'openai';
 import { Anthropic } from '@anthropic-ai/sdk';
 import { AIOrchestrator } from '@/lib/ai-orchestrator'; // Import AIOrchestrator
 import { SupplementItem as DBSupplementItem, LineItem as DBLineItem, JobData as DBJobData } from '@/types'; // Import DB types
+import { BusinessRulesEngine } from './rules/BusinessRules'; // Import Business Rules Engine
+import { SupplementValidator } from './validators/SupplementValidator'; // Import Supplement Validator
 
 interface SupplementGenerationInput {
   jobId: string;
@@ -92,25 +94,18 @@ export class SupplementGeneratorAgent extends Agent {
   }
 
   async act(input: SupplementGeneratorInput, context: TaskContext): Promise<AgentResult<SupplementGenerationOutput>> {
-    this.log(LogLevel.INFO, 'supplement-generation-start-new', `Starting supplement generation for job ${input.jobId} using AIOrchestrator.`, { parentTaskId: context.taskId, agentType: this.agentType });
+    this.log(LogLevel.INFO, 'supplement-generation-start-multipass', `Starting multi-pass supplement generation for job ${input.jobId}`, { parentTaskId: context.taskId, agentType: this.agentType });
     
-    const { jobId, jobData, actualEstimateLineItems } = input; // New input destructuring
+    const { jobId, jobData, actualEstimateLineItems } = input;
 
     let generatedSupplementsForOutput: GeneratedSupplementItem[] = [];
     const issuesOrSuggestions: string[] = [];
-    let overallConfidence = 0.5; // Default confidence
-    const supplementRationales: Record<string, string> = {}; // For SupplementGenerationOutput
+    let overallConfidence = 0.5;
+    const supplementRationales: Record<string, string> = {};
 
+    // Input validation
     if (!jobData || !actualEstimateLineItems) {
         this.log(LogLevel.ERROR, 'missing-input-data-supplements', 'Missing jobData or actualEstimateLineItems for supplement generation.', { jobId, agentType: this.agentType });
-        // Return a valid AgentResult with an error status
-        const validationError: ValidationResult = {
-            isValid: false,
-            confidence: 0.0,
-            errors: ['Missing jobData or actualEstimateLineItems for supplement generation.'],
-            warnings: [],
-            suggestions: []
-        };
         return {
             data: { 
                 jobId,
@@ -119,68 +114,200 @@ export class SupplementGeneratorAgent extends Agent {
                 issuesOrSuggestions: ['Critical: Missing input data.'], 
                 overallConfidence: 0.0 
             } as SupplementGenerationOutput,
-            validation: validationError,
-            processingTimeMs: 0, // Will be set by base
-            model: 'ai_orchestrator'
+            validation: {
+                isValid: false,
+                confidence: 0.0,
+                errors: ['Missing jobData or actualEstimateLineItems for supplement generation.'],
+                warnings: [],
+                suggestions: []
+            },
+            processingTimeMs: 0,
+            model: 'multi_pass_system'
         };
     }
 
     try {
-      const aiOrchestrator = new AIOrchestrator(jobId);
+      // PASS 1: Initial AI Suggestions
+      this.log(LogLevel.INFO, 'pass-1-ai-suggestions', `Pass 1: Getting initial AI suggestions for job ${jobId}`, { agentType: this.agentType });
       
-      this.log(LogLevel.DEBUG, 'calling-ai-orchestrator-supplements', `Calling AIOrchestrator.analyzeDiscrepanciesAndSuggestSupplements for job ${jobId}`, {agentType: this.agentType});
-
-      const rawSupplementItems: DBSupplementItem[] = await aiOrchestrator.analyzeDiscrepanciesAndSuggestSupplements(
-        jobData,
-        actualEstimateLineItems
-      );
-
-      this.log(LogLevel.INFO, 'ai-orchestrator-supplements-returned', `AIOrchestrator returned ${rawSupplementItems.length} supplement items for job ${jobId}`, { count: rawSupplementItems.length, agentType: this.agentType });
-
-      if (rawSupplementItems && rawSupplementItems.length > 0) {
-        // Save to Supabase
-        const { error: supplementSaveError } = await this.supabase
-          .from('supplement_items')
-          .insert(rawSupplementItems.map(item => ({ ...item, job_id: jobId }))); // Ensure job_id is set if not already by AIOrchestrator
-
-        if (supplementSaveError) {
-          this.log(LogLevel.ERROR, 'supplement-save-failed', `Failed to save supplement items: ${supplementSaveError.message}`, { jobId, error: supplementSaveError, agentType: this.agentType });
-          issuesOrSuggestions.push(`Failed to save supplement items: ${supplementSaveError.message}`);
-          // Potentially lower confidence or mark as partial failure
-        } else {
-          this.log(LogLevel.SUCCESS, 'supplement-save-success', `${rawSupplementItems.length} supplement items saved to DB.`, { jobId, agentType: this.agentType });
-        }
-
-        // Transform DBSupplementItem[] to GeneratedSupplementItem[] for agent output
-        generatedSupplementsForOutput = rawSupplementItems.map((dbItem): GeneratedSupplementItem => {
-          const generatedId = dbItem.id || uuidv4();
-          supplementRationales[generatedId] = dbItem.reason; // Populate rationales
-          return {
-            id: generatedId, 
-            xactimateCode: dbItem.xactimate_code || 'TBD',
-            description: dbItem.line_item,
-            quantity: dbItem.quantity,
-            unit: dbItem.unit,
-            justification: dbItem.reason,
-            confidence: dbItem.confidence_score,
-            sourceRecommendationId: `ai_orchestrator_${generatedId}`,
-          };
-        });
-        
-        if (generatedSupplementsForOutput.length > 0) {
-            overallConfidence = generatedSupplementsForOutput.reduce((sum, item) => sum + item.confidence, 0) / generatedSupplementsForOutput.length;
-        } else {
-            overallConfidence = 0.3; // Low if AIOrchestrator returned items but transformation failed or all filtered out
-        }
-      } else {
-        this.log(LogLevel.INFO, 'no-supplements-from-ai-orchestrator', `AIOrchestrator returned no supplement items for job ${jobId}.`, {agentType: this.agentType});
-        overallConfidence = 0.6; // Neutral-ish if no items suggested, implies alignment
+      const aiOrchestrator = new AIOrchestrator(jobId);
+      let aiSupplements: DBSupplementItem[] = [];
+      
+      try {
+        aiSupplements = await aiOrchestrator.analyzeDiscrepanciesAndSuggestSupplements(jobData, actualEstimateLineItems);
+        this.log(LogLevel.INFO, 'pass-1-complete', `Pass 1 complete: AI returned ${aiSupplements.length} supplement suggestions`, { count: aiSupplements.length, agentType: this.agentType });
+      } catch (aiError: any) {
+        this.log(LogLevel.ERROR, 'pass-1-failed', `Pass 1 AI suggestions failed: ${aiError.message}`, { error: aiError.message, agentType: this.agentType });
+        issuesOrSuggestions.push(`AI suggestion generation failed: ${aiError.message}`);
+        // Continue with empty AI suggestions - business rules can still add items
       }
 
+      // PASS 2: Business Rules Validation/Supplementation
+      this.log(LogLevel.INFO, 'pass-2-business-rules', `Pass 2: Running business rules validation for job ${jobId}`, { agentType: this.agentType });
+      
+      const businessRulesEngine = new BusinessRulesEngine();
+      let rulesSupplements: DBSupplementItem[] = [];
+      let rulesResults: any[] = [];
+      
+      try {
+        const rulesEvaluation = businessRulesEngine.evaluateAll({
+          jobData,
+          estimateLineItems: actualEstimateLineItems,
+          aiSuggestions: aiSupplements
+        });
+        
+        rulesSupplements = rulesEvaluation.newSupplements;
+        rulesResults = rulesEvaluation.results;
+        
+        this.log(LogLevel.INFO, 'pass-2-complete', `Pass 2 complete: Business rules added ${rulesSupplements.length} supplements, verified ${rulesResults.filter(r => r.action === 'verify').length} AI suggestions`, { 
+          newSupplements: rulesSupplements.length, 
+          verifiedSuggestions: rulesResults.filter(r => r.action === 'verify').length,
+          summary: rulesEvaluation.summary,
+          agentType: this.agentType 
+        });
+        
+        issuesOrSuggestions.push(rulesEvaluation.summary);
+      } catch (rulesError: any) {
+        this.log(LogLevel.ERROR, 'pass-2-failed', `Pass 2 business rules failed: ${rulesError.message}`, { error: rulesError.message, agentType: this.agentType });
+        issuesOrSuggestions.push(`Business rules evaluation failed: ${rulesError.message}`);
+        // Continue without business rules supplements
+      }
+
+      // Combine AI and business rules supplements
+      const combinedSupplements = [...aiSupplements, ...rulesSupplements];
+      this.log(LogLevel.INFO, 'supplements-combined', `Combined supplements: ${aiSupplements.length} from AI + ${rulesSupplements.length} from business rules = ${combinedSupplements.length} total`, { 
+        aiCount: aiSupplements.length, 
+        rulesCount: rulesSupplements.length, 
+        totalCount: combinedSupplements.length,
+        agentType: this.agentType 
+      });
+
+      // PASS 3: Cross-Reference Validation
+      this.log(LogLevel.INFO, 'pass-3-validation', `Pass 3: Cross-reference validation for ${combinedSupplements.length} supplements`, { agentType: this.agentType });
+      
+      const validator = new SupplementValidator();
+      let validSupplements: DBSupplementItem[] = [];
+      let validationSummary = '';
+      
+      try {
+        if (combinedSupplements.length > 0) {
+          const validationResult = validator.validateSupplements(combinedSupplements, actualEstimateLineItems, jobData);
+          validSupplements = validationResult.validSupplements;
+          validationSummary = validationResult.summary;
+          
+          this.log(LogLevel.INFO, 'pass-3-complete', `Pass 3 complete: ${validationResult.validSupplements.length}/${combinedSupplements.length} supplements passed validation`, {
+            validCount: validationResult.validSupplements.length,
+            invalidCount: validationResult.invalidSupplements.length,
+            summary: validationSummary,
+            agentType: this.agentType
+          });
+          
+          issuesOrSuggestions.push(validationSummary);
+          
+          // Log details about invalid supplements for debugging
+          if (validationResult.invalidSupplements.length > 0) {
+            validationResult.invalidSupplements.forEach(invalid => {
+              const issues = validationResult.validationResults.get(invalid.id)?.issues || [];
+              this.log(LogLevel.DEBUG, 'supplement-rejected', `Rejected supplement: ${invalid.line_item}`, { 
+                item: invalid.line_item, 
+                issues: issues.slice(0, 2), // First 2 issues for brevity
+                agentType: this.agentType 
+              });
+            });
+          }
+        } else {
+          this.log(LogLevel.INFO, 'pass-3-skipped', 'Pass 3 skipped: No supplements to validate', { agentType: this.agentType });
+        }
+      } catch (validationError: any) {
+        this.log(LogLevel.ERROR, 'pass-3-failed', `Pass 3 validation failed: ${validationError.message}`, { error: validationError.message, agentType: this.agentType });
+        issuesOrSuggestions.push(`Validation failed: ${validationError.message}`);
+        // Use unvalidated supplements as fallback
+        validSupplements = combinedSupplements;
+      }
+
+      // PASS 4: Optional Follow-up AI Call (if insufficient items found)
+      const finalSupplements = validSupplements;
+      if (finalSupplements.length < 3 && rulesSupplements.length > 0) {
+        this.log(LogLevel.INFO, 'pass-4-considered', `Pass 4: Found ${finalSupplements.length} supplements but business rules suggested ${rulesSupplements.length} items. Consider targeted follow-up AI call.`, { 
+          finalCount: finalSupplements.length, 
+          rulesCount: rulesSupplements.length,
+          agentType: this.agentType 
+        });
+        issuesOrSuggestions.push(`Potential for additional supplements - business rules identified ${rulesSupplements.length} missing items but only ${finalSupplements.length} total supplements validated.`);
+        // TODO: Implement targeted follow-up AI calls in future iteration
+      }
+
+      // PASS 5: Final Confidence Scoring
+      this.log(LogLevel.INFO, 'pass-5-confidence', `Pass 5: Calculating final confidence score for ${finalSupplements.length} supplements`, { agentType: this.agentType });
+      
+      if (finalSupplements.length > 0) {
+        // Calculate weighted confidence combining AI, business rules, and validation
+        const aiConfidence = aiSupplements.length > 0 ? aiSupplements.reduce((sum, item) => sum + item.confidence_score, 0) / aiSupplements.length : 0.5;
+        const rulesConfidence = rulesResults.length > 0 ? rulesResults.reduce((sum, result) => sum + result.confidence, 0) / rulesResults.length : 0.5;
+        const validationSuccess = validSupplements.length / Math.max(combinedSupplements.length, 1);
+        
+        // Weighted combination: 40% AI, 35% business rules, 25% validation success
+        overallConfidence = (aiConfidence * 0.4) + (rulesConfidence * 0.35) + (validationSuccess * 0.25);
+        
+        this.log(LogLevel.INFO, 'confidence-calculated', `Final confidence: ${overallConfidence.toFixed(3)} (AI: ${aiConfidence.toFixed(3)}, Rules: ${rulesConfidence.toFixed(3)}, Validation: ${validationSuccess.toFixed(3)})`, {
+          overallConfidence: overallConfidence.toFixed(3),
+          aiConfidence: aiConfidence.toFixed(3),
+          rulesConfidence: rulesConfidence.toFixed(3),
+          validationSuccess: validationSuccess.toFixed(3),
+          agentType: this.agentType
+        });
+      } else {
+        // No supplements generated
+        if (aiSupplements.length === 0 && rulesSupplements.length === 0) {
+          overallConfidence = 0.7; // High confidence that no supplements are needed
+          issuesOrSuggestions.push('No supplements required - estimate appears complete and compliant.');
+        } else {
+          overallConfidence = 0.3; // Low confidence - items were suggested but didn't pass validation
+          issuesOrSuggestions.push('Supplements were suggested but failed validation - possible data quality issues.');
+        }
+      }
+
+      // Save valid supplements to database
+      if (finalSupplements.length > 0) {
+        try {
+          const { error: supplementSaveError } = await this.supabase
+            .from('supplement_items')
+            .insert(finalSupplements.map(item => ({ ...item, job_id: jobId })));
+
+          if (supplementSaveError) {
+            this.log(LogLevel.ERROR, 'supplement-save-failed', `Failed to save supplement items: ${supplementSaveError.message}`, { jobId, error: supplementSaveError, agentType: this.agentType });
+            issuesOrSuggestions.push(`Database save failed: ${supplementSaveError.message}`);
+            overallConfidence *= 0.8; // Reduce confidence for save failures
+          } else {
+            this.log(LogLevel.SUCCESS, 'supplement-save-success', `${finalSupplements.length} validated supplement items saved to database`, { jobId, count: finalSupplements.length, agentType: this.agentType });
+          }
+        } catch (saveError: any) {
+          this.log(LogLevel.ERROR, 'supplement-save-error', `Error saving supplements: ${saveError.message}`, { error: saveError.message, agentType: this.agentType });
+          issuesOrSuggestions.push(`Database error: ${saveError.message}`);
+          overallConfidence *= 0.8;
+        }
+      }
+
+      // Transform to output format
+      generatedSupplementsForOutput = finalSupplements.map((dbItem): GeneratedSupplementItem => {
+        const generatedId = dbItem.id || uuidv4();
+        supplementRationales[generatedId] = dbItem.reason;
+        return {
+          id: generatedId, 
+          xactimateCode: dbItem.xactimate_code || 'TBD',
+          description: dbItem.line_item,
+          quantity: dbItem.quantity,
+          unit: dbItem.unit,
+          justification: dbItem.reason,
+          confidence: dbItem.confidence_score,
+          sourceRecommendationId: `multi_pass_${generatedId}`,
+        };
+      });
+
     } catch (error: any) {
-        this.log(LogLevel.ERROR, 'supplement-generation-error-new', `Error during AIOrchestrator supplement generation: ${error.message}`, { jobId, error: error.toString(), stack: error.stack, agentType: this.agentType });
-        issuesOrSuggestions.push(`Critical error during supplement generation via AIOrchestrator: ${error.message}`);
-        overallConfidence = 0.1; // Very low on critical error
+        this.log(LogLevel.ERROR, 'multi-pass-critical-error', `Critical error in multi-pass supplement generation: ${error.message}`, { jobId, error: error.toString(), stack: error.stack, agentType: this.agentType });
+        issuesOrSuggestions.push(`Critical system error: ${error.message}`);
+        overallConfidence = 0.1;
     }
 
     const output: SupplementGenerationOutput = {
@@ -191,16 +318,16 @@ export class SupplementGeneratorAgent extends Agent {
       overallConfidence: parseFloat(overallConfidence.toFixed(3)),
     };
 
-    this.log(LogLevel.SUCCESS, 'supplement-generation-complete-new', 
-      `Supplement generation completed for job ${jobId}. Items: ${generatedSupplementsForOutput.length}, Confidence: ${output.overallConfidence}`, 
+    this.log(LogLevel.SUCCESS, 'multi-pass-complete', 
+      `Multi-pass supplement generation completed for job ${jobId}. Final results: ${generatedSupplementsForOutput.length} supplements, confidence: ${output.overallConfidence}`, 
       { jobId, itemCount: generatedSupplementsForOutput.length, confidence: output.overallConfidence, agentType: this.agentType }
     );
 
     return {
       data: output,
-      validation: await this.validate(output, context), // Validate method might need adjustment based on new output structure
+      validation: await this.validate(output, context),
       processingTimeMs: 0, // Set by base Agent
-      model: 'ai_orchestrator' // Indicate the new source
+      model: 'multi_pass_system'
     };
   }
 

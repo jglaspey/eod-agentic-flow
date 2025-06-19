@@ -235,27 +235,100 @@ While the infrastructure is solid, we've identified a critical accuracy issue:
 
 ---
 
-## 🎯 Next Session Priorities
+---
 
-### 1. Fix Mistral OCR Integration 🔥 **HIGH PRIORITY**
-- Option A: Convert PDF to PNG/JPG images before sending to Mistral
-- Option B: Find correct Mistral API endpoint for PDFs
-- Option C: Use different OCR service that supports PDFs directly
+## 🎯 V1 IMPLEMENTATION: Multi-Item Output & Business Rules System
+**Date Started**: June 18, 2025
+**Priority**: 🔥 **CRITICAL PRIORITY** - Core system functionality fix
 
-### 2. Debug Supplement Accuracy 🔥 **HIGH PRIORITY**
-- Trace through supplement generation process
-- Validate extracted line items against supplement recommendations
-- Improve AI prompts for better accuracy
+### Problem Statement
+**Primary Issue**: System only returns 1 supplement item when multiple should appear (critical business logic failure)
+**Secondary Issue**: Need client's specific business rules for Hip/Ridge Cap, Starter Row, Drip Edge/Gutter Apron, Ice & Water Barrier
 
-### 3. Improve Confidence Scoring 📊 **MEDIUM PRIORITY**
-- Review discrepancy analysis confidence calculation
-- Consider adjusting penalty weights
-- Add configuration for confidence thresholds
+### Root Cause Analysis Completed
+1. **AI Prompt Issue**: Vague "structured analysis" prompt instead of explicit JSON format requirements
+2. **Parser Bottleneck**: Strict `if (description && reason)` filter drops items missing either field
+3. **No Business Logic**: Generic AI suggestions without domain-specific validation rules
+4. **No Cross-Reference**: AI hallucinates items that already exist in estimate
 
-### 4. Performance Optimization ⚡ **LOW PRIORITY**
-- Monitor AI API costs and response times
-- Implement caching for repeated operations
-- Optimize PDF processing pipeline
+### V1 Solution Architecture (3-Layer Validation System)
+```
+Layer 1: Enhanced AI Prompting → JSON Array Output
+Layer 2: Business Rules Engine → 4 Client Decision Trees  
+Layer 3: Cross-Reference Validator → Prevent False Positives
+```
+
+### Implementation Plan Progress
+
+#### Phase 1: Testing Infrastructure ⚡ **IN PROGRESS**
+- [ ] Install Jest + React Testing Library + @types/jest
+- [ ] Create jest.config.js and test scripts in package.json
+- [ ] Set up unit test structure for business logic validation
+
+#### Phase 2: Enhanced AI Orchestrator (Multi-Item Fix) 🎯 **HIGH PRIORITY**
+- [ ] Update AI config prompts for explicit JSON schema
+- [ ] Rewrite `parseSupplementSuggestions()` with robust parsing strategies
+- [ ] Add detailed logging for debugging parsing failures
+- [ ] Implement fallback parsing for malformed responses
+
+#### Phase 3: Business Rules Engine 🏗️ **HIGH PRIORITY**
+- [ ] Create `src/agents/rules/BusinessRules.ts` 
+- [ ] Implement 4 client decision trees from mermaid charts:
+  - **HipRidgeCapRule**: Purpose-built vs cut shingle validation
+  - **StarterRowRule**: Universal starter vs included-in-waste validation
+  - **DripEdgeGutterRule**: Rake vs eave coverage validation  
+  - **IceWaterBarrierRule**: Code-required quantity calculations
+- [ ] Integrate rules to run AFTER AI suggestions for verification/supplementation
+
+#### Phase 4: Cross-Reference Validator 🛡️ **MEDIUM PRIORITY**
+- [ ] Create `src/agents/validators/SupplementValidator.ts`
+- [ ] Implement `itemExistsInEstimate()` to prevent false positives
+- [ ] Add `validateXactimateCode()` against reference list
+- [ ] Create `validateQuantity()` for sanity checks against roof measurements
+
+#### Phase 5: Enhanced Orchestration 🔄 **MEDIUM PRIORITY**
+- [ ] Update `SupplementGeneratorAgent.ts` with multi-pass approach:
+  1. Initial AI call for bulk suggestions
+  2. Business rules validation/supplementation
+  3. Cross-reference validation
+  4. If <3 items but rules suggest more → targeted follow-up AI calls
+  5. Final confidence scoring
+
+#### Phase 6: Testing & Quality Assurance 🧪 **ONGOING**
+- [ ] Unit tests for each business rule independently
+- [ ] Integration tests for full workflow with mocked AI responses
+- [ ] API tests with real PDF samples
+- [ ] Test coverage >80% on core logic
+
+### Success Criteria for V1
+- ✅ **Multi-item output**: Generate 2-5 supplements when appropriate (not just 1)
+- ✅ **Business rule compliance**: Correctly identify all 4 categories from client charts
+- ✅ **Reduced hallucination**: <10% false positives on existing items
+- ✅ **Maintained performance**: <30s total processing time
+- ✅ **Test coverage**: >80% on business logic and parsing functions
+
+### Files Being Created/Modified
+**New Files**:
+- `src/agents/rules/BusinessRules.ts`
+- `src/agents/validators/SupplementValidator.ts`
+- `jest.config.js`
+- Test files: `*.test.ts` throughout codebase
+
+**Modified Files**:
+- `src/lib/ai-orchestrator.ts` (parsing & prompting fixes)
+- `src/agents/SupplementGeneratorAgent.ts` (orchestration enhancement)
+- `package.json` (testing dependencies & scripts)
+- Database AI config (JSON format prompts)
+
+### V2 Future Items (Explicitly NOT in V1)
+- User feedback loop interface
+- Supabase code management migration
+- Advanced iterative refinement beyond multi-pass
+- Multimodal image analysis integration
+
+---
+
+## 🎯 Previous Session Priorities (Pre-V1)
 
 ---
 

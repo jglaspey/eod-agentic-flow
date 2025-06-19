@@ -182,88 +182,339 @@ export class AIOrchestrator {
   
   private parseSupplementSuggestions(aiResponse: string, parentStep: string): SupplementItem[] {
     const step = `${parentStep}-parsing`
-    logStreamer.logStep(this.jobId, step, 'Parsing AI supplement suggestions.')
+    logStreamer.logStep(this.jobId, step, 'Parsing AI supplement suggestions with enhanced multi-item strategy.')
     const supplementItems: SupplementItem[] = []
 
     try {
-      // Attempt to parse as JSON if the AI is structured to return JSON
-      // This is an assumption; the prompt needs to guide the AI to produce parseable JSON.
-      let suggestions: any[]
-      try {
-        suggestions = JSON.parse(aiResponse)
-        if (!Array.isArray(suggestions)) {
-            logStreamer.logError(this.jobId, step, 'AI response for supplements was valid JSON but not an array. Trying line-by-line parsing.', {aiResponse})
-            // Fallback to text parsing if not an array
-            throw new Error("Not an array")
-        }
-        logStreamer.logDebug(this.jobId, step, 'Successfully parsed AI supplement suggestions as JSON array.', { count: suggestions.length })
-      } catch (e) {
-        // Try to extract JSON from markdown code blocks
-        const jsonMatch = aiResponse.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
-        if (jsonMatch) {
-          try {
-            suggestions = JSON.parse(jsonMatch[1])
-            if (Array.isArray(suggestions)) {
-              logStreamer.logDebug(this.jobId, step, 'Successfully extracted JSON from markdown code blocks.', { count: suggestions.length })
-            } else {
-              throw new Error("Not an array")
-            }
-          } catch (markdownJsonError) {
-            logStreamer.logDebug(this.jobId, step, 'Failed to parse JSON from markdown code blocks.', { error: markdownJsonError })
-            throw e // Fall back to line-by-line parsing
-          }
+      const suggestions = this.tryMultipleParsingStrategies(aiResponse, step)
+      logStreamer.logDebug(this.jobId, step, `Extracted ${suggestions.length} raw suggestions from AI response.`, { suggestions })
+
+      for (const [index, suggestion] of suggestions.entries()) {
+        const parsedItem = this.createSupplementFromSuggestion(suggestion, index, step)
+        if (parsedItem) {
+          supplementItems.push(parsedItem)
+          logStreamer.logDebug(this.jobId, step, `Successfully created supplement item ${index + 1}: "${parsedItem.line_item}"`)
         } else {
-          logStreamer.logDebug(this.jobId, step, 'AI response for supplements was not valid JSON. Attempting line-by-line parsing for item descriptions.', {aiResponse})
-          // Fallback for non-JSON or malformed JSON: try to extract item descriptions line by line
-          // This is a more robust fallback but less precise.
-          // The prompt should strongly guide the AI to return a JSON array of objects.
-          const lines = aiResponse.split('\n')
-          suggestions = lines.map(line => ({ description: line.trim() })).filter(s => s.description)
-           logStreamer.logDebug(this.jobId, step, 'Parsed AI supplement suggestions line-by-line.', { count: suggestions.length })
+          logStreamer.logDebug(this.jobId, step, `Failed to create supplement item ${index + 1} from suggestion`, { suggestion })
         }
       }
 
-      for (const suggestion of suggestions) {
-        const description = suggestion.description || suggestion.line_item || suggestion.item || suggestion.name // AI might use different keys
-        let code = suggestion.code || suggestion.xactimate_code
-        const reason = suggestion.reason || suggestion.justification
-        const confidence = suggestion.confidence_score !== undefined ? parseFloat(suggestion.confidence_score) : 
-                         (suggestion.confidence !== undefined ? parseFloat(suggestion.confidence) : 0.75) // Default confidence
-
-        if (!description) {
-          logStreamer.logDebug(this.jobId, step, 'Skipping suggestion with no description.', { suggestion })
-          continue
-        }
-
-        // If code is missing or "TBD" from AI, try to find it
-        if (!code || code.toUpperCase() === 'TBD') {
-          const foundCode = this.findCodeForDescription(description)
-          code = foundCode || 'TBD'
-          logStreamer.logDebug(this.jobId, step, `Code lookup for "${description}": ${code}`)
-        }
-        
-        // Basic validation: ensure essential fields are present
-        if (description && reason) {
-            supplementItems.push({
-                id: uuidv4(),
-                job_id: this.jobId, 
-                xactimate_code: code, 
-                line_item: description, 
-                reason: reason,
-                quantity: suggestion.quantity && !isNaN(parseFloat(suggestion.quantity)) ? parseFloat(suggestion.quantity) : 1, 
-                unit: suggestion.unit || 'EA', 
-                confidence_score: confidence,
-                calculation_details: suggestion.calculation_details || undefined,
-            });
-        } else {
-            logStreamer.logDebug(this.jobId, step, 'Skipping incomplete supplement suggestion.', { suggestion });
-        }
-      }
-      logStreamer.logSuccess(this.jobId, step, `Successfully parsed ${supplementItems.length} supplement items.`)
+      logStreamer.logSuccess(this.jobId, step, `Successfully parsed ${supplementItems.length} supplement items from ${suggestions.length} suggestions.`)
     } catch (error: any) {
       logStreamer.logError(this.jobId, step, `Error parsing supplement suggestions: ${error.message}`, { aiResponse, error })
     }
     return supplementItems
+  }
+
+  /**
+   * Try multiple parsing strategies to extract suggestions from AI response
+   * This is the core fix for the single-item output issue
+   */
+  private tryMultipleParsingStrategies(aiResponse: string, step: string): any[] {
+    // Strategy 1: Direct JSON array parsing
+    try {
+      const directJson = JSON.parse(aiResponse)
+      if (Array.isArray(directJson) && directJson.length > 0) {
+        logStreamer.logDebug(this.jobId, step, 'Strategy 1 SUCCESS: Direct JSON array parsing', { count: directJson.length })
+        return directJson
+      }
+      if (typeof directJson === 'object' && directJson !== null) {
+        // Single object wrapped in array
+        logStreamer.logDebug(this.jobId, step, 'Strategy 1 PARTIAL: Single object converted to array', { object: directJson })
+        return [directJson]
+      }
+    } catch (e) {
+      logStreamer.logDebug(this.jobId, step, 'Strategy 1 FAILED: Direct JSON parsing failed')
+    }
+
+    // Strategy 2: Extract JSON from markdown code blocks
+    const jsonBlockMatch = aiResponse.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+    if (jsonBlockMatch) {
+      try {
+        const blockJson = JSON.parse(jsonBlockMatch[1])
+        if (Array.isArray(blockJson)) {
+          logStreamer.logDebug(this.jobId, step, 'Strategy 2 SUCCESS: JSON from markdown blocks', { count: blockJson.length })
+          return blockJson
+        }
+        if (typeof blockJson === 'object' && blockJson !== null) {
+          logStreamer.logDebug(this.jobId, step, 'Strategy 2 PARTIAL: Single object from markdown block')
+          return [blockJson]
+        }
+      } catch (e) {
+        logStreamer.logDebug(this.jobId, step, 'Strategy 2 FAILED: Markdown JSON parsing failed')
+      }
+    }
+
+    // Strategy 3: Extract multiple JSON objects (one per line)
+    const jsonObjectsPerLine = this.extractJsonObjectsPerLine(aiResponse, step)
+    if (jsonObjectsPerLine.length > 0) {
+      logStreamer.logDebug(this.jobId, step, 'Strategy 3 SUCCESS: JSON objects per line', { count: jsonObjectsPerLine.length })
+      return jsonObjectsPerLine
+    }
+
+    // Strategy 4: Pattern-based extraction for structured text
+    const patternExtracted = this.extractFromStructuredText(aiResponse, step)
+    if (patternExtracted.length > 0) {
+      logStreamer.logDebug(this.jobId, step, 'Strategy 4 SUCCESS: Pattern-based extraction', { count: patternExtracted.length })
+      return patternExtracted
+    }
+
+    // Strategy 5: Intelligent line-by-line parsing with context
+    const intelligentLineExtraction = this.extractFromLines(aiResponse, step)
+    logStreamer.logDebug(this.jobId, step, `Strategy 5 FALLBACK: Intelligent line extraction found ${intelligentLineExtraction.length} items`)
+    return intelligentLineExtraction
+  }
+
+  private extractJsonObjectsPerLine(text: string, step: string): any[] {
+    const objects: any[] = []
+    const lines = text.split('\n')
+    
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+        try {
+          const obj = JSON.parse(trimmed)
+          objects.push(obj)
+        } catch (e) {
+          // Ignore invalid JSON lines
+        }
+      }
+    }
+    return objects
+  }
+
+  private extractFromStructuredText(text: string, step: string): any[] {
+    const items: any[] = []
+    
+    // Look for bullet points and extract item-reason pairs
+    const bulletPattern = /[-*•]\s+(.+?):\s*(.+?)(?=\n|$)/g
+    let match
+    while ((match = bulletPattern.exec(text)) !== null) {
+      const item = {
+        line_item: match[1]?.trim(),
+        reason: match[2]?.trim()
+      }
+      if (item.line_item && item.line_item.length > 1) { // Ensure it's not a single character
+        items.push(item)
+      }
+    }
+
+    // Look for numbered lists
+    const numberedPattern = /\d+\.\s*(.+?):\s*(.+?)(?=\n|$)/g
+    while ((match = numberedPattern.exec(text)) !== null) {
+      const item = {
+        line_item: match[1]?.trim(),
+        reason: match[2]?.trim()
+      }
+      if (item.line_item && item.line_item.length > 1) {
+        items.push(item)
+      }
+    }
+
+    return items
+  }
+
+  private extractFromLines(text: string, step: string): any[] {
+    const items: any[] = []
+    const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0)
+    
+    for (const line of lines) {
+      // Skip obvious non-content lines
+      if (this.isContentLine(line)) {
+        const item = this.parseLineAsItem(line)
+        if (item) {
+          items.push(item)
+        }
+      }
+    }
+
+    return items
+  }
+
+  private isContentLine(line: string): boolean {
+    const skipPatterns = [
+      /^```/,
+      /^here\s+are/i,
+      /^the\s+following/i,
+      /^analysis:/i,
+      /^summary:/i,
+      /^\[/,
+      /^{/,
+      /^}/
+    ]
+    // Don't skip lines that start with bullet points or have content structure
+    if (line.match(/^[-*•]\s+/)) {
+      return true // Always include bullet points
+    }
+    return !skipPatterns.some(pattern => pattern.test(line))
+  }
+
+  private parseLineAsItem(line: string): any | null {
+    // Extract item name and reason from various formats
+    const formats = [
+      /^(.+?)\s*[-:]\s*(.+)$/,  // "Item - Reason" or "Item: Reason"
+      /^(.+?)\s*\((.+?)\)$/,    // "Item (Reason)"
+      /^(.+?)$/                 // Just "Item"
+    ]
+
+    for (const format of formats) {
+      const match = line.match(format)
+      if (match) {
+        return {
+          line_item: match[1]?.trim(),
+          reason: match[2]?.trim() || 'Item identified as missing from analysis',
+          confidence_score: 0.6 // Lower confidence for line parsing
+        }
+      }
+    }
+    return null
+  }
+
+  private buildItemFromMatches(match: RegExpExecArray): any {
+    return {
+      line_item: match[2]?.trim() || match[1]?.trim(),
+      reason: match[3]?.trim(),
+      xactimate_code: match[4]?.trim(),
+      quantity: match[5] ? parseFloat(match[5]) : undefined,
+      unit: match[6]?.trim()
+    }
+  }
+
+  /**
+   * Create a SupplementItem from a parsed suggestion
+   * This replaces the strict validation that was dropping items
+   */
+  private createSupplementFromSuggestion(suggestion: any, index: number, step: string): SupplementItem | null {
+    // Extract description with multiple fallbacks
+    const description = suggestion.description || 
+                       suggestion.line_item || 
+                       suggestion.item || 
+                       suggestion.name ||
+                       suggestion.title
+
+    if (!description || typeof description !== 'string' || description.trim().length === 0) {
+      logStreamer.logDebug(this.jobId, step, `Item ${index + 1}: No valid description found`, { suggestion })
+      return null
+    }
+
+    // Extract reason with fallbacks and smart defaults
+    let reason = suggestion.reason || 
+                suggestion.justification || 
+                suggestion.explanation ||
+                suggestion.why
+
+    if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
+      // Create intelligent default reason based on description
+      reason = this.generateDefaultReason(description)
+      logStreamer.logDebug(this.jobId, step, `Item ${index + 1}: Generated default reason for "${description}"`)
+    }
+
+    // Extract and validate code
+    let code = suggestion.code || suggestion.xactimate_code
+    if (!code || code.toUpperCase() === 'TBD') {
+      const foundCode = this.findCodeForDescription(description)
+      code = foundCode || 'TBD'
+      logStreamer.logDebug(this.jobId, step, `Item ${index + 1}: Code lookup for "${description}": ${code}`)
+    }
+
+    // Extract quantity and unit with validation
+    const quantity = this.parseQuantity(suggestion.quantity)
+    const unit = this.parseUnit(suggestion.unit, description)
+
+    // Extract confidence with intelligent defaults
+    const confidence = this.parseConfidence(suggestion.confidence_score || suggestion.confidence, quantity, unit, code !== 'TBD')
+
+    const supplementItem: SupplementItem = {
+      id: uuidv4(),
+      job_id: this.jobId,
+      line_item: description.trim(),
+      reason: reason.trim(),
+      xactimate_code: code,
+      quantity: quantity,
+      unit: unit,
+      confidence_score: confidence,
+      calculation_details: suggestion.calculation_details || suggestion.details || undefined
+    }
+
+    logStreamer.logDebug(this.jobId, step, `Item ${index + 1}: Created supplement`, { 
+      line_item: supplementItem.line_item,
+      reason: supplementItem.reason,
+      code: supplementItem.xactimate_code,
+      confidence: supplementItem.confidence_score
+    })
+
+    return supplementItem
+  }
+
+  private generateDefaultReason(description: string): string {
+    const lowerDesc = description.toLowerCase()
+    
+    if (lowerDesc.includes('drip edge')) {
+      return 'Drip edge required for proper roof edge protection'
+    }
+    if (lowerDesc.includes('ice') && lowerDesc.includes('water')) {
+      return 'Ice & water barrier required by building code'
+    }
+    if (lowerDesc.includes('ridge cap') || lowerDesc.includes('hip cap')) {
+      return 'Ridge cap required for proper roof ridge coverage'
+    }
+    if (lowerDesc.includes('starter')) {
+      return 'Starter row required for proper shingle installation'
+    }
+    if (lowerDesc.includes('gutter apron')) {
+      return 'Gutter apron required for proper water management'
+    }
+    
+    return `${description} identified as missing or insufficient based on analysis`
+  }
+
+  private parseQuantity(quantityInput: any): number {
+    if (typeof quantityInput === 'number' && !isNaN(quantityInput)) {
+      return Math.max(0, quantityInput)
+    }
+    if (typeof quantityInput === 'string') {
+      const parsed = parseFloat(quantityInput.replace(/[^\d.-]/g, ''))
+      if (!isNaN(parsed)) {
+        return Math.max(0, parsed)
+      }
+    }
+    return 1 // Default quantity
+  }
+
+  private parseUnit(unitInput: any, description: string): string {
+    if (typeof unitInput === 'string' && unitInput.trim().length > 0) {
+      return unitInput.trim().toUpperCase()
+    }
+    
+    // Intelligent unit detection based on description
+    const lowerDesc = description.toLowerCase()
+    if (lowerDesc.includes('linear') || lowerDesc.includes('length') || lowerDesc.includes('edge') || lowerDesc.includes('drip')) {
+      return 'LF'
+    }
+    if (lowerDesc.includes('area') || lowerDesc.includes('square') || lowerDesc.includes('barrier') || lowerDesc.includes('ice')) {
+      return 'SF'
+    }
+    return 'EA' // Default unit
+  }
+
+  private parseConfidence(confidenceInput: any, quantity: number, unit: string, hasValidCode: boolean): number {
+    let baseConfidence = 0.75 // Default confidence
+    
+    if (typeof confidenceInput === 'number' && !isNaN(confidenceInput)) {
+      baseConfidence = Math.max(0, Math.min(1, confidenceInput))
+    } else if (typeof confidenceInput === 'string') {
+      const parsed = parseFloat(confidenceInput)
+      if (!isNaN(parsed)) {
+        baseConfidence = Math.max(0, Math.min(1, parsed))
+      }
+    }
+
+    // Adjust confidence based on data quality
+    if (!hasValidCode) baseConfidence *= 0.9
+    if (quantity <= 0) baseConfidence *= 0.8
+    if (unit === 'EA' && quantity === 1) baseConfidence *= 0.95 // Common default case
+
+    return Math.round(baseConfidence * 1000) / 1000 // Round to 3 decimal places
   }
 
   private findCodeForDescription(description: string): string | null {

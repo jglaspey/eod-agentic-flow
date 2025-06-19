@@ -56,7 +56,111 @@
   - [x] Automatic cleanup and connection management
   - [x] Job status monitoring and stream termination
 
-## 🚧 IN PROGRESS / NEXT STEPS
+## 🎯 CURRENT FOCUS: V1 MULTI-ITEM OUTPUT & BUSINESS RULES SYSTEM
+**Started**: June 18, 2025 | **Priority**: 🔥 CRITICAL SYSTEM FIX
+
+### 🚨 Core Problem Being Solved
+**Issue**: System only returns 1 supplement item when multiple should appear - critical business logic failure identified through deep research
+
+**Root Causes Identified**:
+1. AI prompt too vague ("structured analysis" vs explicit JSON array format)
+2. Parser too strict (drops items missing description OR reason)
+3. No domain-specific business rules (client's 4 decision trees)
+4. No cross-reference validation (AI hallucinates existing items)
+
+### 🏗️ V1 Solution Architecture: 3-Layer Validation System
+
+#### Layer 1: Enhanced AI Prompting
+- **Current**: "Return a structured analysis"
+- **New**: "Return JSON array with exact schema: [{line_item, reason, xactimate_code, quantity, unit}]"
+- **Implementation**: Update AI config prompts + few-shot examples
+
+#### Layer 2: Business Rules Engine
+- **Purpose**: Implement client's 4 decision trees as code validators
+- **Rules**: Hip/Ridge Cap, Starter Row, Drip Edge/Gutter Apron, Ice & Water Barrier
+- **Integration**: Run AFTER AI suggestions to verify/supplement
+
+#### Layer 3: Cross-Reference Validator
+- **Purpose**: Prevent false positives by checking suggestions against actual estimate
+- **Functions**: `itemExistsInEstimate()`, `validateXactimateCode()`, `validateQuantity()`
+
+### 🚧 V1 IMPLEMENTATION PHASES
+
+#### Phase V1.1: Testing Infrastructure Setup ⚡ **IN PROGRESS**
+- [ ] Install Jest, React Testing Library, @types/jest
+- [ ] Create jest.config.js with Next.js compatibility
+- [ ] Add test scripts to package.json (`test`, `test:watch`, `test:coverage`)
+- [ ] Set up test file structure (`*.test.ts` alongside source files)
+
+#### Phase V1.2: Enhanced AI Orchestrator (Multi-Item Fix) 🎯 **HIGH PRIORITY**
+**File**: `src/lib/ai-orchestrator.ts`
+- [ ] **Fix parseSupplementSuggestions()**: Robust parsing with multiple fallback strategies
+- [ ] **Update AI Config**: Explicit JSON schema requirements in database prompts
+- [ ] **Enhanced Logging**: Debug-level logging for parsing failures and successes
+- [ ] **Flexible Field Extraction**: Handle partial responses, missing fields gracefully
+
+#### Phase V1.3: Business Rules Engine 🏗️ **HIGH PRIORITY**
+**File**: `src/agents/rules/BusinessRules.ts` (new)
+- [ ] **HipRidgeCapRule**: Purpose-built vs cut shingle validation (from client mermaid chart)
+- [ ] **StarterRowRule**: Universal starter vs included-in-waste validation
+- [ ] **DripEdgeGutterRule**: Rake vs eave coverage validation
+- [ ] **IceWaterBarrierRule**: Code-required quantity calculations
+- [ ] **Integration**: Business rules run after AI suggestions for verification/supplementation
+
+#### Phase V1.4: Cross-Reference Validator 🛡️ **MEDIUM PRIORITY**
+**File**: `src/agents/validators/SupplementValidator.ts` (new)
+- [ ] **itemExistsInEstimate()**: Check if suggested item already present in estimate
+- [ ] **validateXactimateCode()**: Verify code exists in reference list (codes.md)
+- [ ] **validateQuantity()**: Sanity check quantities against roof measurements
+- [ ] **Integration**: Final validation layer before returning supplements
+
+#### Phase V1.5: Enhanced Orchestration 🔄 **MEDIUM PRIORITY**
+**File**: `src/agents/SupplementGeneratorAgent.ts`
+- [ ] **Multi-Pass Logic**: 
+  1. Initial AI call for bulk suggestions
+  2. Business rules validation/supplementation
+  3. Cross-reference validation
+  4. If <3 items but rules suggest more → targeted follow-up AI calls
+  5. Final confidence scoring combining AI + rules + validation
+- [ ] **Enhanced Error Handling**: Graceful degradation if any layer fails
+
+#### Phase V1.6: Comprehensive Testing Suite 🧪 **ONGOING**
+- [ ] **Unit Tests**: Each business rule independently testable
+- [ ] **Integration Tests**: Full workflow with mocked AI responses  
+- [ ] **API Tests**: Real PDF samples through `/api/process`
+- [ ] **Coverage Target**: >80% on core business logic and parsing
+
+### ✅ V1 SUCCESS CRITERIA
+- **Multi-item output**: Generate 2-5 supplements when appropriate (not just 1)
+- **Business rule compliance**: Correctly identify all 4 categories from client decision trees
+- **Reduced hallucination**: <10% false positives on existing items
+- **Maintained performance**: <30s total processing time
+- **Test coverage**: >80% on business logic and parsing functions
+
+### 📂 V1 FILES BEING CREATED/MODIFIED
+
+**New Files**:
+- `src/agents/rules/BusinessRules.ts` - 4 client decision trees
+- `src/agents/validators/SupplementValidator.ts` - Cross-reference validation
+- `jest.config.js` - Testing configuration
+- `src/lib/__tests__/ai-orchestrator.test.ts` - Parsing tests
+- `src/agents/__tests__/rules/BusinessRules.test.ts` - Rule validation tests
+
+**Modified Files**:
+- `src/lib/ai-orchestrator.ts` - Enhanced parsing & prompting
+- `src/agents/SupplementGeneratorAgent.ts` - Multi-pass orchestration
+- `package.json` - Testing dependencies & scripts
+- Database AI config - JSON format prompts
+
+### 🚀 V2 FUTURE ITEMS (NOT IN V1 SCOPE)
+- User feedback loop interface
+- Supabase code management migration
+- Advanced iterative refinement beyond multi-pass
+- Multimodal image analysis integration
+
+---
+
+## 🚧 PREVIOUS PHASES (COMPLETED)
 
 ### Phase 5: Enhanced Accuracy & Validation
 - [x] **Serverless Environment Fixes** ✅ (June 10, 2025)
@@ -231,6 +335,26 @@
 1. **Mistral OCR** - Expects image mime types only, not PDFs
 2. **Discrepancy Analysis** - Low confidence scores (0.29-0.33)
 3. **Pitch Extraction** - ✅ FIXED (converts numeric to string)
+
+---
+
+## 📝 V1 IMPLEMENTATION SESSION TRACKING
+
+### Session 1: Documentation & Architecture Planning 
+**Date**: June 18, 2025
+**Focus**: Planning and documentation setup for V1 implementation
+
+**Completed**:
+- [x] Updated DEVELOPMENT_NOTES.md with V1 implementation plan
+- [x] Updated AGENTIC_IMPLEMENTATION_PLAN.md with current focus
+- [x] Established 3-layer validation system architecture
+- [x] Created comprehensive testing strategy plan
+- [x] Defined clear success criteria and file structure
+
+**Next Session Tasks**:
+- [ ] Begin Phase V1.1: Set up testing infrastructure
+- [ ] Start Phase V1.2: Fix AI orchestrator parsing
+- [ ] Implement first business rule from client mermaid charts
 
 ### Cross-Reference
 See [DEVELOPMENT_NOTES.md](./DEVELOPMENT_NOTES.md) for detailed session logs and milestone documentation.
