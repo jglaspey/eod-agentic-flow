@@ -130,20 +130,43 @@ export class SupplementGeneratorAgent extends Agent {
       // PASS 1: Initial AI Suggestions
       this.log(LogLevel.INFO, 'pass-1-ai-suggestions', `Pass 1: Getting initial AI suggestions for job ${jobId}`, { agentType: this.agentType });
       
+      // Write to job_logs for visibility
+      await this.writeJobLog(jobId, 'multi-pass-1-start', LogLevel.INFO, 'Multi-Pass System: Starting Pass 1 - AI Suggestions', {
+        pass: 1,
+        description: 'Initial AI-powered supplement generation'
+      });
+      
       const aiOrchestrator = new AIOrchestrator(jobId);
       let aiSupplements: DBSupplementItem[] = [];
       
       try {
         aiSupplements = await aiOrchestrator.analyzeDiscrepanciesAndSuggestSupplements(jobData, actualEstimateLineItems);
         this.log(LogLevel.INFO, 'pass-1-complete', `Pass 1 complete: AI returned ${aiSupplements.length} supplement suggestions`, { count: aiSupplements.length, agentType: this.agentType });
+        
+        // Write completion to job_logs
+        await this.writeJobLog(jobId, 'multi-pass-1-complete', LogLevel.INFO, `Multi-Pass System: Pass 1 Complete - Generated ${aiSupplements.length} AI suggestions`, {
+          pass: 1,
+          aiSupplementCount: aiSupplements.length,
+          items: aiSupplements.map(s => s.line_item)
+        });
       } catch (aiError: any) {
         this.log(LogLevel.ERROR, 'pass-1-failed', `Pass 1 AI suggestions failed: ${aiError.message}`, { error: aiError.message, agentType: this.agentType });
         issuesOrSuggestions.push(`AI suggestion generation failed: ${aiError.message}`);
+        
+        await this.writeJobLog(jobId, 'multi-pass-1-error', LogLevel.ERROR, `Multi-Pass System: Pass 1 Failed - ${aiError.message}`, {
+          pass: 1,
+          error: aiError.message
+        });
         // Continue with empty AI suggestions - business rules can still add items
       }
 
       // PASS 2: Business Rules Validation/Supplementation
       this.log(LogLevel.INFO, 'pass-2-business-rules', `Pass 2: Running business rules validation for job ${jobId}`, { agentType: this.agentType });
+      
+      await this.writeJobLog(jobId, 'multi-pass-2-start', LogLevel.INFO, 'Multi-Pass System: Starting Pass 2 - Business Rules Validation', {
+        pass: 2,
+        description: 'Applying domain-specific business rules to validate and supplement AI suggestions'
+      });
       
       const businessRulesEngine = new BusinessRulesEngine();
       let rulesSupplements: DBSupplementItem[] = [];
@@ -166,6 +189,13 @@ export class SupplementGeneratorAgent extends Agent {
           agentType: this.agentType 
         });
         
+        await this.writeJobLog(jobId, 'multi-pass-2-complete', LogLevel.INFO, `Multi-Pass System: Pass 2 Complete - Applied ${rulesResults.length} business rules`, {
+          pass: 2,
+          newSupplements: rulesSupplements.length,
+          rulesApplied: rulesResults.map(r => ({ rule: r.ruleName, action: r.action })),
+          summary: rulesEvaluation.summary
+        });
+        
         issuesOrSuggestions.push(rulesEvaluation.summary);
       } catch (rulesError: any) {
         this.log(LogLevel.ERROR, 'pass-2-failed', `Pass 2 business rules failed: ${rulesError.message}`, { error: rulesError.message, agentType: this.agentType });
@@ -185,6 +215,12 @@ export class SupplementGeneratorAgent extends Agent {
       // PASS 3: Cross-Reference Validation
       this.log(LogLevel.INFO, 'pass-3-validation', `Pass 3: Cross-reference validation for ${combinedSupplements.length} supplements`, { agentType: this.agentType });
       
+      await this.writeJobLog(jobId, 'multi-pass-3-start', LogLevel.INFO, `Multi-Pass System: Starting Pass 3 - Cross-Reference Validation`, {
+        pass: 3,
+        totalSupplements: combinedSupplements.length,
+        description: 'Validating supplements against estimate and preventing duplicates'
+      });
+      
       const validator = new SupplementValidator();
       let validSupplements: DBSupplementItem[] = [];
       let validationSummary = '';
@@ -200,6 +236,14 @@ export class SupplementGeneratorAgent extends Agent {
             invalidCount: validationResult.invalidSupplements.length,
             summary: validationSummary,
             agentType: this.agentType
+          });
+          
+          await this.writeJobLog(jobId, 'multi-pass-3-complete', LogLevel.INFO, `Multi-Pass System: Pass 3 Complete - ${validationResult.validSupplements.length} supplements validated`, {
+            pass: 3,
+            validCount: validationResult.validSupplements.length,
+            invalidCount: validationResult.invalidSupplements.length,
+            rejectedItems: validationResult.invalidSupplements.map(s => s.line_item),
+            summary: validationSummary
           });
           
           issuesOrSuggestions.push(validationSummary);
@@ -233,12 +277,26 @@ export class SupplementGeneratorAgent extends Agent {
           rulesCount: rulesSupplements.length,
           agentType: this.agentType 
         });
+        
+        await this.writeJobLog(jobId, 'multi-pass-4-check', LogLevel.INFO, `Multi-Pass System: Pass 4 - Follow-up Check`, {
+          pass: 4,
+          status: 'skipped',
+          reason: 'Follow-up AI calls not yet implemented',
+          finalCount: finalSupplements.length,
+          rulesCount: rulesSupplements.length
+        });
+        
         issuesOrSuggestions.push(`Potential for additional supplements - business rules identified ${rulesSupplements.length} missing items but only ${finalSupplements.length} total supplements validated.`);
         // TODO: Implement targeted follow-up AI calls in future iteration
       }
 
       // PASS 5: Final Confidence Scoring
       this.log(LogLevel.INFO, 'pass-5-confidence', `Pass 5: Calculating final confidence score for ${finalSupplements.length} supplements`, { agentType: this.agentType });
+      
+      await this.writeJobLog(jobId, 'multi-pass-5-start', LogLevel.INFO, 'Multi-Pass System: Starting Pass 5 - Final Confidence Scoring', {
+        pass: 5,
+        description: 'Calculating overall confidence based on all passes'
+      });
       
       if (finalSupplements.length > 0) {
         // Calculate weighted confidence combining AI, business rules, and validation
@@ -256,6 +314,15 @@ export class SupplementGeneratorAgent extends Agent {
           validationSuccess: validationSuccess.toFixed(3),
           agentType: this.agentType
         });
+        
+        await this.writeJobLog(jobId, 'multi-pass-5-complete', LogLevel.INFO, `Multi-Pass System: Pass 5 Complete - Final Confidence: ${(overallConfidence * 100).toFixed(1)}%`, {
+          pass: 5,
+          overallConfidence: overallConfidence.toFixed(3),
+          aiConfidence: aiConfidence.toFixed(3),
+          rulesConfidence: rulesConfidence.toFixed(3),
+          validationSuccess: validationSuccess.toFixed(3),
+          finalSupplementCount: finalSupplements.length
+        });
       } else {
         // No supplements generated
         if (aiSupplements.length === 0 && rulesSupplements.length === 0) {
@@ -266,6 +333,24 @@ export class SupplementGeneratorAgent extends Agent {
           issuesOrSuggestions.push('Supplements were suggested but failed validation - possible data quality issues.');
         }
       }
+
+      // Write final multi-pass summary
+      await this.writeJobLog(jobId, 'multi-pass-complete', LogLevel.SUCCESS, `Multi-Pass System Complete: Generated ${finalSupplements.length} supplements with ${(overallConfidence * 100).toFixed(1)}% confidence`, {
+        summary: {
+          totalSupplements: finalSupplements.length,
+          pass1_aiSuggestions: aiSupplements.length,
+          pass2_businessRulesAdded: rulesSupplements.length,
+          pass3_validated: validSupplements.length,
+          pass4_followup: 'not implemented',
+          pass5_confidence: overallConfidence.toFixed(3),
+          items: finalSupplements.map(s => ({
+            item: s.line_item,
+            code: s.xactimate_code,
+            quantity: s.quantity,
+            confidence: s.confidence_score
+          }))
+        }
+      });
 
       // Save valid supplements to database
       if (finalSupplements.length > 0) {

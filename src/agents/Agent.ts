@@ -12,6 +12,7 @@ import {
   AIConfig
 } from './types'
 import { logStreamer } from '@/lib/log-streamer'
+import { getSupabaseClient } from '@/lib/supabase'
 import { v4 as uuidv4 } from 'uuid'
 import { OpenAI } from 'openai'
 import { Anthropic } from '@anthropic-ai/sdk'
@@ -292,6 +293,42 @@ export abstract class Agent {
       return JSON.stringify(data).substring(0, 200) + '...'
     }
     return data
+  }
+
+  /**
+   * Write a log entry directly to the job_logs table for visibility
+   */
+  protected async writeJobLog(
+    jobId: string,
+    step: string,
+    level: LogLevel,
+    message: string,
+    data?: any
+  ): Promise<void> {
+    try {
+      const supabase = getSupabaseClient();
+      const logLevel = level === LogLevel.DEBUG ? 'debug' : 
+                      level === LogLevel.INFO ? 'info' : 
+                      level === LogLevel.WARN ? 'warn' : 
+                      level === LogLevel.ERROR ? 'error' : 
+                      level === LogLevel.SUCCESS ? 'success' : 'info';
+      
+      const { error } = await supabase
+        .from('job_logs')
+        .insert({
+          job_id: jobId,
+          step,
+          level: logLevel,
+          message,
+          data: data || {}
+        });
+        
+      if (error) {
+        console.error('Failed to write to job_logs:', error);
+      }
+    } catch (err) {
+      console.error('Error writing to job_logs:', err);
+    }
   }
 
   /**
