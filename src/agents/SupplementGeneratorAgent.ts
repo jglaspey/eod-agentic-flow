@@ -94,7 +94,11 @@ export class SupplementGeneratorAgent extends Agent {
   }
 
   async act(input: SupplementGeneratorInput, context: TaskContext): Promise<AgentResult<SupplementGenerationOutput>> {
-    // ULTRA AGGRESSIVE LOGGING TO DETECT BYPASS
+    // ULTRA AGGRESSIVE LOGGING TO DETECT BYPASS - SYNCHRONOUS
+    console.log(`🚨🚨🚨 MULTI-PASS ACT() METHOD CALLED FOR JOB ${input.jobId} 🚨🚨🚨`);
+    console.log('Context:', context);
+    console.log('Input:', { hasJobData: !!input.jobData, hasLineItems: !!input.actualEstimateLineItems });
+    
     await this.writeJobLog(input.jobId, 'MULTI-PASS-ENTRY-DETECTED', LogLevel.INFO, '🚨 MULTI-PASS SUPPLEMENT AGENT ENTRY POINT REACHED 🚨', {
       timestamp: new Date().toISOString(),
       hasJobData: !!input.jobData,
