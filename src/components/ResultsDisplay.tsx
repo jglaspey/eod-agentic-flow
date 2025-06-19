@@ -15,16 +15,21 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
   const [isRefreshing, setIsRefreshing] = useState(false)
 
   // Debug: Log supplements data when component renders
-  console.log('ResultsDisplay rendered with supplements:', {
+  console.log('🔍 DEBUG: ResultsDisplay rendered with supplements:', {
     supplementsCount: supplements?.length || 0,
     supplements: supplements?.map(s => ({
       id: s.id,
       line_item: s.line_item,
       source_system: s.source_system,
       business_rule_applied: s.business_rule_applied,
-      validation_status: s.validation_status
+      validation_status: s.validation_status,
+      hasSourceSystem: !!s.source_system,
+      sourceSystemType: typeof s.source_system
     }))
   });
+  
+  // Also log raw supplements for debugging
+  console.log('🔍 DEBUG: Raw supplements array:', supplements);
 
   const handleRefresh = async () => {
     setIsRefreshing(true)
