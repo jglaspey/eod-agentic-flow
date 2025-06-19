@@ -72,7 +72,7 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
     if (item.source_system === 'business_rule') {
       return (
         <div className="flex items-center">
-          <div className="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
+          <div className="w-3 h-3 bg-blue-500 rounded-full mr-2 flex-shrink-0"></div>
           <span className="text-xs text-blue-600 font-medium">
             {getRuleDisplayName(item.business_rule_applied?.[0])}
           </span>
@@ -81,7 +81,7 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
     } else if (item.source_system === 'ai_suggestion') {
       return (
         <div className="flex items-center">
-          <div className="w-2 h-2 bg-purple-500 rounded-full mr-2"></div>
+          <div className="w-3 h-3 bg-purple-500 rounded-full mr-2 flex-shrink-0"></div>
           <span className="text-xs text-purple-600 font-medium">AI Suggestion</span>
         </div>
       )
@@ -327,11 +327,11 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
           {/* Legend */}
           <div className="flex items-center space-x-6">
             <div className="flex items-center">
-              <div className="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
+              <div className="w-3 h-3 bg-blue-500 rounded-full mr-2 flex-shrink-0"></div>
               <span className="text-xs text-gray-600">Business Rules (Deterministic)</span>
             </div>
             <div className="flex items-center">
-              <div className="w-2 h-2 bg-purple-500 rounded-full mr-2"></div>
+              <div className="w-3 h-3 bg-purple-500 rounded-full mr-2 flex-shrink-0"></div>
               <span className="text-xs text-gray-600">AI Suggestions (Probabilistic)</span>
             </div>
           </div>
