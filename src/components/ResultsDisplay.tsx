@@ -69,6 +69,13 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
   }
 
   const getSourceIcon = (item: SupplementItem) => {
+    // Debug: log what we're receiving
+    console.log('getSourceIcon called with:', {
+      line_item: item.line_item,
+      source_system: item.source_system,
+      business_rule_applied: item.business_rule_applied
+    });
+    
     if (item.source_system === 'business_rule') {
       return (
         <div className="flex items-center">
@@ -86,7 +93,13 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
         </div>
       )
     }
-    return null
+    
+    // Debug: show what we got if it doesn't match
+    return (
+      <div className="text-xs text-red-500">
+        DEBUG: {item.source_system || 'undefined'}
+      </div>
+    )
   }
 
   if (job.status === 'processing' && !jobData) {
