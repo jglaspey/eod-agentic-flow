@@ -211,19 +211,17 @@ export class SupplementGeneratorAgent extends Agent {
         validation_status: 'pending' as const
       }));
 
-      const rulesSupplementsWithSource = rulesSupplements.map((supplement, index) => {
-        // Find which rule generated this supplement
-        const relatedResult = rulesResults.find(result => 
-          result.action === 'add' && 
-          result.supplement?.line_item === supplement.line_item
-        );
-        
-        return {
-          ...supplement,
-          source_system: 'business_rule' as const,
-          business_rule_applied: relatedResult ? [relatedResult.ruleId] : ['unknown_rule'],
-          validation_status: 'pending' as const
-        };
+      // Business rules now set their own source attribution in createSupplement()
+      const rulesSupplementsWithSource = rulesSupplements;
+
+      // Debug: Log business rule attribution
+      rulesSupplements.forEach(supplement => {
+        this.log(LogLevel.DEBUG, 'business-rule-attribution', `Business rule supplement attribution`, {
+          line_item: supplement.line_item,
+          source_system: supplement.source_system,
+          business_rule_applied: supplement.business_rule_applied,
+          agentType: this.agentType
+        });
       });
 
       // Combine supplements in standardized order: Business Rules first (1-4), then AI suggestions
@@ -405,9 +403,20 @@ export class SupplementGeneratorAgent extends Agent {
       // Save valid supplements to database
       if (sortedFinalSupplements.length > 0) {
         try {
+          // Debug: Log what we're about to save
+          const itemsToSave = sortedFinalSupplements.map(item => ({ ...item, job_id: jobId }));
+          this.log(LogLevel.DEBUG, 'supplement-save-debug', `Saving ${itemsToSave.length} supplements to database`, {
+            items: itemsToSave.map(item => ({
+              line_item: item.line_item,
+              source_system: item.source_system,
+              business_rule_applied: item.business_rule_applied
+            })),
+            agentType: this.agentType
+          });
+
           const { error: supplementSaveError } = await this.supabase
             .from('supplement_items')
-            .insert(sortedFinalSupplements.map(item => ({ ...item, job_id: jobId })));
+            .insert(itemsToSave);
 
           if (supplementSaveError) {
             this.log(LogLevel.ERROR, 'supplement-save-failed', `Failed to save supplement items: ${supplementSaveError.message}`, { jobId, error: supplementSaveError, agentType: this.agentType });

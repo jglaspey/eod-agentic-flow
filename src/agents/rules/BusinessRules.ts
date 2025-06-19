@@ -47,7 +47,10 @@ export abstract class BusinessRule {
       unit,
       reason,
       confidence_score: confidence,
-      calculation_details: calculationDetails
+      calculation_details: calculationDetails,
+      source_system: 'business_rule' as const,
+      business_rule_applied: [this.ruleId],
+      validation_status: 'pending' as const
     }
   }
 
@@ -77,7 +80,7 @@ export abstract class BusinessRule {
  * From client mermaid chart - ensures purpose-built ridge caps vs cut shingles
  */
 export class HipRidgeCapRule extends BusinessRule {
-  ruleId = 'hip-ridge-cap-quality'
+  ruleId = 'hip_ridge_cap_check'
   name = 'Hip/Ridge Cap Quality Check'
   description = 'Validates ridge cap type - purpose-built vs cut from 3-tab shingles'
 
@@ -177,7 +180,7 @@ export class HipRidgeCapRule extends BusinessRule {
  * From client mermaid chart - ensures universal starter vs included-in-waste
  */
 export class StarterRowRule extends BusinessRule {
-  ruleId = 'starter-row-quality'
+  ruleId = 'starter_row_check'
   name = 'Starter Row Quality Check'
   description = 'Validates starter row type - universal starter vs inadequate alternatives'
 
@@ -306,7 +309,7 @@ export class StarterRowRule extends BusinessRule {
  * From client mermaid chart - validates rake vs eave coverage
  */
 export class DripEdgeGutterRule extends BusinessRule {
-  ruleId = 'drip-edge-gutter-coverage'
+  ruleId = 'drip_edge_gutter_check'
   name = 'Drip Edge & Gutter Apron Coverage Check'
   description = 'Validates proper edge protection - drip edge for rakes, gutter apron for eaves'
 
@@ -434,7 +437,7 @@ export class DripEdgeGutterRule extends BusinessRule {
  * From client mermaid chart - calculates code-required coverage
  */
 export class IceWaterBarrierRule extends BusinessRule {
-  ruleId = 'ice-water-barrier-code'
+  ruleId = 'ice_water_barrier_check'
   name = 'Ice & Water Barrier Code Compliance'
   description = 'Validates ice & water barrier meets building code requirements for climate zone'
 
