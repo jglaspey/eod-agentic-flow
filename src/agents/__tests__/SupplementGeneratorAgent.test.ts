@@ -32,8 +32,9 @@ jest.mock('uuid', () => ({
   v4: jest.fn(() => 'test-uuid')
 }))
 
-// Mock the Agent base class log method
+// Mock the Agent base class log method and writeJobLog method
 const mockLog = jest.fn()
+const mockWriteJobLog = jest.fn().mockResolvedValue(undefined)
 jest.mock('../Agent', () => ({
   Agent: class MockAgent {
     config: any
@@ -41,6 +42,7 @@ jest.mock('../Agent', () => ({
       this.config = config
     }
     log = mockLog
+    writeJobLog = mockWriteJobLog
   }
 }))
 
@@ -80,12 +82,13 @@ describe('SupplementGeneratorAgent - Multi-Pass Integration', () => {
     mockContext = {
       taskId: 'test-task-id',
       jobId: 'test-job-id',
-      userId: 'test-user-id',
-      traceId: 'test-trace-id'
+      priority: 1
     }
 
     // Clear all mocks
     jest.clearAllMocks()
+    mockLog.mockClear()
+    mockWriteJobLog.mockClear()
   })
 
   test('should execute multi-pass workflow successfully', async () => {
