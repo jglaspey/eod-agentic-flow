@@ -316,6 +316,7 @@ export abstract class Agent {
       const { error } = await supabase
         .from('job_logs')
         .insert({
+          id: uuidv4(),
           job_id: jobId,
           step,
           level: logLevel,

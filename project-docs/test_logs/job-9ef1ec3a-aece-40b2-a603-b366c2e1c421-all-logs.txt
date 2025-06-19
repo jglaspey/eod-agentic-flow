@@ -1,0 +1,959 @@
+Job Logs - ID: 9ef1ec3a-aece-40b2-a603-b366c2e1c421
+Generated: 6/19/2025, 3:15:23 PM
+============================================================
+
+[6/19/2025, 3:13:26 PM] INFO (job-creation-confirmed) Job 9ef1ec3a-aece-40b2-a603-b366c2e1c421 created successfully, starting processing
+
+[6/19/2025, 3:13:26 PM] INFO (job-started) Job processing started with new agent system
+
+[6/19/2025, 3:13:26 PM] INFO (buffer_conversion) Converting uploaded files to buffers
+
+[6/19/2025, 3:13:26 PM] INFO (debug-log-test) Testing log storage for job 9ef1ec3a-aece-40b2-a603-b366c2e1c421
+
+[6/19/2025, 3:13:26 PM] INFO (agent_initialization) Initializing OrchestrationAgent
+
+[6/19/2025, 3:13:26 PM] INFO (orchestration_execute_start) Starting OrchestrationAgent.execute()
+
+[6/19/2025, 3:13:26 PM] INFO (orchestration_start) OrchestrationAgent processing started
+  Data: {
+  "input": {
+    "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+    "hasEstimatePdf": true,
+    "hasRoofReportPdf": true
+  },
+  "agentVersion": "1.0.0"
+}
+
+[6/19/2025, 3:13:26 PM] DEBUG (estimate_extractor_plan) EstimateExtractorAgent.plan() starting
+  Data: {
+  "strategy": "HYBRID",
+  "hasPdfBuffer": true
+}
+
+[6/19/2025, 3:13:26 PM] DEBUG (OrchestrationAgent-orchestration-run-estimate-agent) Running EstimateExtractorAgent for job 9ef1ec3a-aece-40b2-a603-b366c2e1c421
+  Data: {
+  "context": {
+    "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+    "taskId": "3b95f853-1df4-47f4-89bf-8b9bcfd94e55",
+    "priority": 1,
+    "timeoutMs": 75000,
+    "maxRetries": 0,
+    "retryCount": 0
+  }
+}
+
+[6/19/2025, 3:13:26 PM] DEBUG (estimate_extractor_plan_complete) EstimateExtractorAgent.plan() completed
+  Data: {
+  "taskCount": 3,
+  "estimatedDuration": 30000
+}
+
+[6/19/2025, 3:13:26 PM] DEBUG (pdf_text_extraction_start) Starting PDF text extraction
+  Data: {
+  "taskId": "3b95f853-1df4-47f4-89bf-8b9bcfd94e55"
+}
+
+[6/19/2025, 3:13:26 PM] INFO (estimate_extraction_start) EstimateExtractorAgent processing started
+  Data: {
+  "strategy": "HYBRID"
+}
+
+[6/19/2025, 3:13:26 PM] DEBUG (estimate_extractor_pdf_received) PDF buffer received for processing
+  Data: {
+  "bufferSize": 19324
+}
+
+[6/19/2025, 3:13:26 PM] DEBUG (text_field_extraction_start) Starting field extraction from text
+  Data: {
+  "strategy": "HYBRID",
+  "textQuality": 0.95
+}
+
+[6/19/2025, 3:13:26 PM] DEBUG (pdf_text_extraction_complete) PDF text extraction completed
+  Data: {
+  "taskId": "3b95f853-1df4-47f4-89bf-8b9bcfd94e55",
+  "textLength": 8295,
+  "textQuality": 0.95
+}
+
+[6/19/2025, 3:13:26 PM] DEBUG (extract_fields_from_text_start) EstimateExtractorAgent.extractFieldsFromText() starting
+  Data: {
+  "taskId": "3b95f853-1df4-47f4-89bf-8b9bcfd94e55",
+  "textLength": 8295
+}
+
+[6/19/2025, 3:13:26 PM] DEBUG (sequential_field_extraction_start) Starting sequential field extraction
+  Data: {
+  "fieldCount": 7
+}
+
+[6/19/2025, 3:13:26 PM] DEBUG (extract_single_field_start) EstimateExtractorAgent.extractSingleField() starting for propertyAddress
+  Data: {
+  "model": "claude-sonnet-4-20250514",
+  "provider": "anthropic",
+  "fieldName": "propertyAddress",
+  "hasConfig": true,
+  "hasPrompt": true,
+  "maxTokens": 200,
+  "temperature": 0.05
+}
+
+[6/19/2025, 3:13:29 PM] DEBUG (extract_single_field_start) EstimateExtractorAgent.extractSingleField() starting for claimNumber
+  Data: {
+  "model": "claude-sonnet-4-20250514",
+  "provider": "anthropic",
+  "fieldName": "claimNumber",
+  "hasConfig": true,
+  "hasPrompt": true,
+  "maxTokens": 100,
+  "temperature": 0.05
+}
+
+[6/19/2025, 3:13:29 PM] DEBUG (extract_single_field_success) Field extraction successful for propertyAddress
+  Data: {
+  "fieldName": "propertyAddress",
+  "confidence": 0.9,
+  "extractedValue": "15011 DOUGLAS CIR OMAHA, NE 68154-2045",
+  "responseLength": 38
+}
+
+[6/19/2025, 3:13:31 PM] DEBUG (extract_single_field_success) Field extraction successful for claimNumber
+  Data: {
+  "fieldName": "claimNumber",
+  "confidence": 0.7,
+  "extractedValue": "934635-GP",
+  "responseLength": 9
+}
+
+[6/19/2025, 3:13:31 PM] DEBUG (extract_single_field_start) EstimateExtractorAgent.extractSingleField() starting for insuranceCarrier
+  Data: {
+  "model": "claude-sonnet-4-20250514",
+  "provider": "anthropic",
+  "fieldName": "insuranceCarrier",
+  "hasConfig": true,
+  "hasPrompt": true,
+  "maxTokens": 100,
+  "temperature": 0.05
+}
+
+[6/19/2025, 3:13:34 PM] DEBUG (extract_single_field_success) Field extraction successful for insuranceCarrier
+  Data: {
+  "fieldName": "insuranceCarrier",
+  "confidence": 0.9,
+  "extractedValue": "Nationwide Mutual Insurance Company",
+  "responseLength": 35
+}
+
+[6/19/2025, 3:13:34 PM] DEBUG (extract_single_field_start) EstimateExtractorAgent.extractSingleField() starting for totalRCV
+  Data: {
+  "model": "claude-sonnet-4-20250514",
+  "provider": "anthropic",
+  "fieldName": "totalRCV",
+  "hasConfig": true,
+  "hasPrompt": true,
+  "maxTokens": 100,
+  "temperature": 0.05
+}
+
+[6/19/2025, 3:13:35 PM] DEBUG (extract_single_field_start) EstimateExtractorAgent.extractSingleField() starting for totalACV
+  Data: {
+  "model": "claude-sonnet-4-20250514",
+  "provider": "anthropic",
+  "fieldName": "totalACV",
+  "hasConfig": true,
+  "hasPrompt": true,
+  "maxTokens": 100,
+  "temperature": 0.05
+}
+
+[6/19/2025, 3:13:35 PM] DEBUG (extract_single_field_success) Field extraction successful for totalRCV
+  Data: {
+  "fieldName": "totalRCV",
+  "confidence": 0.7,
+  "extractedValue": "3564.73",
+  "responseLength": 7
+}
+
+[6/19/2025, 3:13:37 PM] DEBUG (extract_single_field_success) Field extraction successful for totalACV
+  Data: {
+  "fieldName": "totalACV",
+  "confidence": 0.7,
+  "extractedValue": "3298.50",
+  "responseLength": 7
+}
+
+[6/19/2025, 3:13:37 PM] DEBUG (extract_single_field_start) EstimateExtractorAgent.extractSingleField() starting for deductible
+  Data: {
+  "model": "claude-sonnet-4-20250514",
+  "provider": "anthropic",
+  "fieldName": "deductible",
+  "hasConfig": true,
+  "hasPrompt": true,
+  "maxTokens": 100,
+  "temperature": 0.05
+}
+
+[6/19/2025, 3:13:39 PM] DEBUG (extract_single_field_start) EstimateExtractorAgent.extractSingleField() starting for dateOfLoss
+  Data: {
+  "model": "claude-sonnet-4-20250514",
+  "provider": "anthropic",
+  "fieldName": "dateOfLoss",
+  "hasConfig": true,
+  "hasPrompt": true,
+  "maxTokens": 100,
+  "temperature": 0.05
+}
+
+[6/19/2025, 3:13:39 PM] DEBUG (date_of_loss_prompt_debug) Date of loss prompt being used
+  Data: {
+  "temperature": 0.05,
+  "promptLength": 8678,
+  "promptPreview": "Extract the date of loss from this insurance estimate document. \n\nIMPORTANT: Return ONLY the date in YYYY-MM-DD format with no explanation, no markdown, no additional text.\n\nExamples:\n- If you find \"D"
+}
+
+[6/19/2025, 3:13:39 PM] DEBUG (extract_single_field_success) Field extraction successful for deductible
+  Data: {
+  "fieldName": "deductible",
+  "confidence": 0.7,
+  "extractedValue": "1500.00",
+  "responseLength": 7
+}
+
+[6/19/2025, 3:13:41 PM] DEBUG (line_items_extraction_start) Starting line items extraction
+
+[6/19/2025, 3:13:41 PM] DEBUG (parallel_field_extraction_complete) Parallel field extraction completed
+  Data: {
+  "extractedValues": {
+    "totalACV": "3298.50",
+    "totalRCV": "3564.73",
+    "dateOfLoss": "2024-05-20",
+    "deductible": "1500.00",
+    "claimNumber": "934635-GP",
+    "propertyAddress": "15011 DOUGLAS CIR OMAHA, NE 68154-2045",
+    "insuranceCarrier": "Nationwide Mutual Insurance Company"
+  }
+}
+
+[6/19/2025, 3:13:41 PM] DEBUG (extract_line_items_start) EstimateExtractorAgent.extractLineItems() starting
+  Data: {
+  "taskId": "3b95f853-1df4-47f4-89bf-8b9bcfd94e55",
+  "textLength": 8295
+}
+
+[6/19/2025, 3:13:41 PM] DEBUG (extract_single_field_success) Field extraction successful for dateOfLoss
+  Data: {
+  "fieldName": "dateOfLoss",
+  "confidence": 0.8,
+  "extractedValue": "2024-05-20",
+  "responseLength": 10
+}
+
+[6/19/2025, 3:13:41 PM] DEBUG (line_items_config_loaded) Line items AI configuration loaded
+  Data: {
+  "model": "claude-sonnet-4-20250514",
+  "provider": "anthropic",
+  "hasPrompt": true,
+  "maxTokens": 2000,
+  "temperature": 0.05
+}
+
+[6/19/2025, 3:13:57 PM] DEBUG (mistral_ocr_check) Checking Mistral OCR extraction availability
+  Data: {
+  "strategy": "HYBRID",
+  "shouldUseMistralOCR": true
+}
+
+[6/19/2025, 3:13:57 PM] DEBUG (extract_fields_from_text_complete) EstimateExtractorAgent.extractFieldsFromText() completed
+  Data: {
+  "overallConfidence": 0.8
+}
+
+[6/19/2025, 3:13:57 PM] DEBUG (line_items_extraction_complete) Line items extraction completed
+  Data: {
+  "confidence": 0.8,
+  "lineItemCount": 13
+}
+
+[6/19/2025, 3:13:57 PM] DEBUG (extract_fields_from_mistral_ocr_start) EstimateExtractorAgent.extractFieldsFromMistralOCR() starting
+  Data: {
+  "taskId": "3b95f853-1df4-47f4-89bf-8b9bcfd94e55",
+  "bufferSize": 19324
+}
+
+[6/19/2025, 3:13:57 PM] DEBUG (extract_line_items_success) Line items extraction successful
+  Data: {
+  "confidence": 0.8,
+  "lineItemCount": 13,
+  "responseLength": 2098
+}
+
+[6/19/2025, 3:13:57 PM] DEBUG (mistral_ocr_api_call_start) Calling Mistral Basic OCR API
+  Data: {
+  "model": "mistral-ocr-latest",
+  "pdfSize": 19324
+}
+
+[6/19/2025, 3:13:57 PM] INFO (mistral_ocr_extraction_start) Starting Mistral OCR-based field extraction
+  Data: {
+  "taskId": "3b95f853-1df4-47f4-89bf-8b9bcfd94e55"
+}
+
+[6/19/2025, 3:13:57 PM] DEBUG (text_field_extraction_success) Field extraction from text completed
+  Data: {
+  "extractedFields": 8,
+  "overallConfidence": 0.8
+}
+
+[6/19/2025, 3:14:00 PM] DEBUG (mistral_ocr_api_call_complete) Mistral Basic OCR call completed
+  Data: {
+  "pageCount": 6,
+  "totalChars": 11301
+}
+
+[6/19/2025, 3:14:00 PM] DEBUG (extract_fields_from_text_start) EstimateExtractorAgent.extractFieldsFromText() starting
+  Data: {
+  "taskId": "3b95f853-1df4-47f4-89bf-8b9bcfd94e55",
+  "textLength": 11301
+}
+
+[6/19/2025, 3:14:01 PM] DEBUG (sequential_field_extraction_start) Starting sequential field extraction
+  Data: {
+  "fieldCount": 7
+}
+
+[6/19/2025, 3:14:01 PM] DEBUG (extract_single_field_start) EstimateExtractorAgent.extractSingleField() starting for propertyAddress
+  Data: {
+  "model": "claude-sonnet-4-20250514",
+  "provider": "anthropic",
+  "fieldName": "propertyAddress",
+  "hasConfig": true,
+  "hasPrompt": true,
+  "maxTokens": 200,
+  "temperature": 0.05
+}
+
+[6/19/2025, 3:14:04 PM] DEBUG (extract_single_field_success) Field extraction successful for propertyAddress
+  Data: {
+  "fieldName": "propertyAddress",
+  "confidence": 0.9,
+  "extractedValue": "15011 DOUGLAS CIR OMAHA, NE 68154-2045",
+  "responseLength": 38
+}
+
+[6/19/2025, 3:14:04 PM] DEBUG (extract_single_field_start) EstimateExtractorAgent.extractSingleField() starting for claimNumber
+  Data: {
+  "model": "claude-sonnet-4-20250514",
+  "provider": "anthropic",
+  "fieldName": "claimNumber",
+  "hasConfig": true,
+  "hasPrompt": true,
+  "maxTokens": 100,
+  "temperature": 0.05
+}
+
+[6/19/2025, 3:14:06 PM] DEBUG (extract_single_field_start) EstimateExtractorAgent.extractSingleField() starting for insuranceCarrier
+  Data: {
+  "model": "claude-sonnet-4-20250514",
+  "provider": "anthropic",
+  "fieldName": "insuranceCarrier",
+  "hasConfig": true,
+  "hasPrompt": true,
+  "maxTokens": 100,
+  "temperature": 0.05
+}
+
+[6/19/2025, 3:14:06 PM] DEBUG (extract_single_field_success) Field extraction successful for claimNumber
+  Data: {
+  "fieldName": "claimNumber",
+  "confidence": 0.7,
+  "extractedValue": "934635-GP",
+  "responseLength": 9
+}
+
+[6/19/2025, 3:14:09 PM] DEBUG (extract_single_field_success) Field extraction successful for insuranceCarrier
+  Data: {
+  "fieldName": "insuranceCarrier",
+  "confidence": 0.9,
+  "extractedValue": "Nationwide Mutual Insurance Company",
+  "responseLength": 35
+}
+
+[6/19/2025, 3:14:09 PM] DEBUG (extract_single_field_start) EstimateExtractorAgent.extractSingleField() starting for totalRCV
+  Data: {
+  "model": "claude-sonnet-4-20250514",
+  "provider": "anthropic",
+  "fieldName": "totalRCV",
+  "hasConfig": true,
+  "hasPrompt": true,
+  "maxTokens": 100,
+  "temperature": 0.05
+}
+
+[6/19/2025, 3:14:11 PM] DEBUG (extract_single_field_success) Field extraction successful for totalRCV
+  Data: {
+  "fieldName": "totalRCV",
+  "confidence": 0.7,
+  "extractedValue": "3564.73",
+  "responseLength": 7
+}
+
+[6/19/2025, 3:14:11 PM] DEBUG (extract_single_field_start) EstimateExtractorAgent.extractSingleField() starting for totalACV
+  Data: {
+  "model": "claude-sonnet-4-20250514",
+  "provider": "anthropic",
+  "fieldName": "totalACV",
+  "hasConfig": true,
+  "hasPrompt": true,
+  "maxTokens": 100,
+  "temperature": 0.05
+}
+
+[6/19/2025, 3:14:13 PM] DEBUG (extract_single_field_success) Field extraction successful for totalACV
+  Data: {
+  "fieldName": "totalACV",
+  "confidence": 0.7,
+  "extractedValue": "3298.50",
+  "responseLength": 7
+}
+
+[6/19/2025, 3:14:13 PM] DEBUG (extract_single_field_start) EstimateExtractorAgent.extractSingleField() starting for deductible
+  Data: {
+  "model": "claude-sonnet-4-20250514",
+  "provider": "anthropic",
+  "fieldName": "deductible",
+  "hasConfig": true,
+  "hasPrompt": true,
+  "maxTokens": 100,
+  "temperature": 0.05
+}
+
+[6/19/2025, 3:14:15 PM] DEBUG (date_of_loss_prompt_debug) Date of loss prompt being used
+  Data: {
+  "temperature": 0.05,
+  "promptLength": 11684,
+  "promptPreview": "Extract the date of loss from this insurance estimate document. \n\nIMPORTANT: Return ONLY the date in YYYY-MM-DD format with no explanation, no markdown, no additional text.\n\nExamples:\n- If you find \"D"
+}
+
+[6/19/2025, 3:14:15 PM] DEBUG (extract_single_field_start) EstimateExtractorAgent.extractSingleField() starting for dateOfLoss
+  Data: {
+  "model": "claude-sonnet-4-20250514",
+  "provider": "anthropic",
+  "fieldName": "dateOfLoss",
+  "hasConfig": true,
+  "hasPrompt": true,
+  "maxTokens": 100,
+  "temperature": 0.05
+}
+
+[6/19/2025, 3:14:15 PM] DEBUG (extract_single_field_success) Field extraction successful for deductible
+  Data: {
+  "fieldName": "deductible",
+  "confidence": 0.7,
+  "extractedValue": "1500.00",
+  "responseLength": 7
+}
+
+[6/19/2025, 3:14:18 PM] DEBUG (extract_single_field_success) Field extraction successful for dateOfLoss
+  Data: {
+  "fieldName": "dateOfLoss",
+  "confidence": 0.8,
+  "extractedValue": "2024-05-20",
+  "responseLength": 10
+}
+
+[6/19/2025, 3:14:18 PM] DEBUG (parallel_field_extraction_complete) Parallel field extraction completed
+  Data: {
+  "extractedValues": {
+    "totalACV": "3298.50",
+    "totalRCV": "3564.73",
+    "dateOfLoss": "2024-05-20",
+    "deductible": "1500.00",
+    "claimNumber": "934635-GP",
+    "propertyAddress": "15011 DOUGLAS CIR OMAHA, NE 68154-2045",
+    "insuranceCarrier": "Nationwide Mutual Insurance Company"
+  }
+}
+
+[6/19/2025, 3:14:18 PM] DEBUG (extract_line_items_start) EstimateExtractorAgent.extractLineItems() starting
+  Data: {
+  "taskId": "3b95f853-1df4-47f4-89bf-8b9bcfd94e55",
+  "textLength": 11301
+}
+
+[6/19/2025, 3:14:18 PM] DEBUG (line_items_extraction_start) Starting line items extraction
+
+[6/19/2025, 3:14:18 PM] DEBUG (line_items_config_loaded) Line items AI configuration loaded
+  Data: {
+  "model": "claude-sonnet-4-20250514",
+  "provider": "anthropic",
+  "hasPrompt": true,
+  "maxTokens": 2000,
+  "temperature": 0.05
+}
+
+[6/19/2025, 3:14:34 PM] DEBUG (mistral_ocr_extraction_success) Mistral OCR field extraction completed
+  Data: {
+  "extractedFields": 8,
+  "overallConfidence": 0.8
+}
+
+[6/19/2025, 3:14:34 PM] DEBUG (extract_line_items_success) Line items extraction successful
+  Data: {
+  "confidence": 0.8,
+  "lineItemCount": 13,
+  "responseLength": 2098
+}
+
+[6/19/2025, 3:14:34 PM] DEBUG (line_items_extraction_complete) Line items extraction completed
+  Data: {
+  "confidence": 0.8,
+  "lineItemCount": 13
+}
+
+[6/19/2025, 3:14:34 PM] DEBUG (extract_fields_from_text_complete) EstimateExtractorAgent.extractFieldsFromText() completed
+  Data: {
+  "overallConfidence": 0.8
+}
+
+[6/19/2025, 3:14:34 PM] INFO (estimate_extraction_complete) EstimateExtractorAgent processing finished. Overall confidence: 0.800
+  Data: {
+  "taskId": "3b95f853-1df4-47f4-89bf-8b9bcfd94e55",
+  "outputSummary": {
+    "totalACV": 3298.5,
+    "totalRCV": 3564.73,
+    "usedText": true,
+    "deductible": 1500,
+    "usedVision": false,
+    "claimNumber": "934635-GP",
+    "textQuality": 0.95,
+    "lineItemCount": 13,
+    "usedMistralOCR": false,
+    "propertyAddress": "15011 DOUGLAS CIR OMAHA, NE 68154-2045",
+    "extractionMethod": "hybrid",
+    "insuranceCarrier": "Nationwide Mutual Insurance Company",
+    "overallConfidence": 0.8
+  }
+}
+
+[6/19/2025, 3:14:34 PM] INFO (RoofReportExtractorAgent-planning-roof-extraction) Planning roof report extraction for job 9ef1ec3a-aece-40b2-a603-b366c2e1c421
+  Data: {
+  "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+  "agentType": "RoofReportExtractorAgent",
+  "parentTaskId": "678390bf-ea35-4f3a-a303-a968d1dcb78a"
+}
+
+[6/19/2025, 3:14:34 PM] DEBUG (OrchestrationAgent-orchestration-run-roof-agent) Running RoofReportExtractorAgent for job 9ef1ec3a-aece-40b2-a603-b366c2e1c421
+  Data: {
+  "context": {
+    "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+    "taskId": "678390bf-ea35-4f3a-a303-a968d1dcb78a",
+    "priority": 1,
+    "timeoutMs": 75000,
+    "maxRetries": 0,
+    "retryCount": 0
+  }
+}
+
+[6/19/2025, 3:14:34 PM] INFO (roof_extraction_start) Starting roof report extraction
+  Data: {
+  "strategy": "HYBRID",
+  "bufferSize": 929332
+}
+
+[6/19/2025, 3:14:34 PM] DEBUG (RoofReportExtractorAgent-roof-text-extraction) Attempting text extraction from roof report for job 9ef1ec3a-aece-40b2-a603-b366c2e1c421
+  Data: {
+  "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+  "agentType": "RoofReportExtractorAgent"
+}
+
+[6/19/2025, 3:14:34 PM] INFO (RoofReportExtractorAgent-roof-extraction-start) Starting roof report extraction for job 9ef1ec3a-aece-40b2-a603-b366c2e1c421
+  Data: {
+  "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+  "agentType": "RoofReportExtractorAgent",
+  "parentTaskId": "678390bf-ea35-4f3a-a303-a968d1dcb78a"
+}
+
+[6/19/2025, 3:14:34 PM] INFO (RoofReportExtractorAgent-roof-text-extracted) Text extracted successfully. Length: 9510
+  Data: {
+  "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+  "agentType": "RoofReportExtractorAgent"
+}
+
+[6/19/2025, 3:14:36 PM] DEBUG (RoofReportExtractorAgent-roof-extraction-pre-combine) Combining extractions for job 9ef1ec3a-aece-40b2-a603-b366c2e1c421
+  Data: {
+  "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+  "strategy": "HYBRID",
+  "agentType": "RoofReportExtractorAgent",
+  "textMeasurements": [
+    "totalRoofArea",
+    "eaveLength",
+    "rakeLength",
+    "ridgeHipLength",
+    "valleyLength",
+    "stories",
+    "pitch",
+    "facets"
+  ],
+  "visionMeasurements": []
+}
+
+[6/19/2025, 3:14:36 PM] DEBUG (RoofReportExtractorAgent-roof-extraction-post-combine) Combined measurements for job 9ef1ec3a-aece-40b2-a603-b366c2e1c421
+  Data: {
+  "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+  "agentType": "RoofReportExtractorAgent",
+  "eaveLength": 258,
+  "totalRoofArea": 2295,
+  "combinedFields": [
+    "totalRoofArea",
+    "eaveLength",
+    "rakeLength",
+    "ridgeHipLength",
+    "valleyLength",
+    "stories",
+    "pitch",
+    "facets"
+  ]
+}
+
+[6/19/2025, 3:14:36 PM] INFO (RoofReportExtractorAgent-validating-roof-measurements) Validating extracted roof measurements for job 9ef1ec3a-aece-40b2-a603-b366c2e1c421
+  Data: {
+  "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+  "agentType": "RoofReportExtractorAgent"
+}
+
+[6/19/2025, 3:14:36 PM] INFO (RoofReportExtractorAgent-roof-fields-extracted-text) Roof fields extracted from text (source: text).
+  Data: {
+  "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+  "agentType": "RoofReportExtractorAgent",
+  "extractedFields": [
+    "totalRoofArea",
+    "eaveLength",
+    "rakeLength",
+    "ridgeHipLength",
+    "valleyLength",
+    "stories",
+    "pitch",
+    "facets"
+  ]
+}
+
+[6/19/2025, 3:14:36 PM] INFO (job_data_save_start) Attempting to save constructed JobData.
+  Data: {
+  "jobData": {
+    "id": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+    "pitch": "4/12",
+    "job_id": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+    "stories": 1,
+    "total_acv": 3298.5,
+    "total_rcv": 3564.73,
+    "deductible": 1500,
+    "eave_length": 258,
+    "claim_number": "934635-GP",
+    "date_of_loss": "2024-05-20T00:00:00.000Z",
+    "valley_length": 16,
+    "property_address": "15011 DOUGLAS CIR OMAHA, NE 68154-2045",
+    "ridge_hip_length": 155,
+    "insurance_carrier": "Nationwide Mutual Insurance Company",
+    "roof_area_squares": 22.95
+  }
+}
+
+[6/19/2025, 3:14:36 PM] INFO (roof_extraction_complete) Roof report extraction completed
+  Data: {
+  "hasData": true,
+  "roofArea": 2295,
+  "confidence": 0.79,
+  "eaveLength": 258
+}
+
+[6/19/2025, 3:14:36 PM] INFO (RoofReportExtractorAgent-validating-roof-measurements) Validating extracted roof measurements for job 9ef1ec3a-aece-40b2-a603-b366c2e1c421
+  Data: {
+  "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+  "agentType": "RoofReportExtractorAgent"
+}
+
+[6/19/2025, 3:14:36 PM] SUCCESS (OrchestrationAgent-job-data-save-success) JobData saved successfully.
+  Data: {
+  "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+  "savedData": {
+    "id": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+    "pitch": "4/12",
+    "job_id": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+    "stories": 1,
+    "total_acv": 3298.5,
+    "total_rcv": 3564.73,
+    "created_at": "2025-06-19T22:14:36.480537+00:00",
+    "deductible": 1500,
+    "eave_length": 258,
+    "rake_length": null,
+    "claim_number": "934635-GP",
+    "date_of_loss": "2024-05-20",
+    "error_message": null,
+    "valley_length": 16,
+    "property_address": "15011 DOUGLAS CIR OMAHA, NE 68154-2045",
+    "ridge_hip_length": 155,
+    "insurance_carrier": "Nationwide Mutual Insurance Company",
+    "roof_area_squares": 22.95,
+    "supervisor_outcome": null,
+    "estimate_confidence": null,
+    "roof_report_confidence": null,
+    "supervisor_recommendations": null
+  }
+}
+
+[6/19/2025, 3:14:36 PM] DEBUG (OrchestrationAgent-orchestration-run-discrepancy-agent) Running DiscrepancyAnalysisAgent for job 9ef1ec3a-aece-40b2-a603-b366c2e1c421
+  Data: {
+  "context": {
+    "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+    "taskId": "95da3f2d-612c-4e9b-aa77-ac4382d73f11",
+    "priority": 2,
+    "timeoutMs": 75000,
+    "maxRetries": 0,
+    "retryCount": 0
+  }
+}
+
+[6/19/2025, 3:14:36 PM] DEBUG (DiscrepancyAnalyzerAgent-direct-field-comparison) Performing direct field comparisons.
+  Data: {
+  "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+  "agentType": "DiscrepancyAnalyzerAgent"
+}
+
+[6/19/2025, 3:14:36 PM] DEBUG (DiscrepancyAnalyzerAgent-ai-discrepancy-analysis) Performing AI-powered discrepancy analysis.
+  Data: {
+  "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+  "agentType": "DiscrepancyAnalyzerAgent"
+}
+
+[6/19/2025, 3:14:39 PM] SUCCESS (DiscrepancyAnalyzerAgent-discrepancy-analysis-complete) Discrepancy analysis completed for job 9ef1ec3a-aece-40b2-a603-b366c2e1c421. Score: 0.113
+  Data: {
+  "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+  "score": 0.11250000000000004,
+  "agentType": "DiscrepancyAnalyzerAgent",
+  "warningCount": 4,
+  "comparisonCount": 8
+}
+
+[6/19/2025, 3:14:39 PM] INFO (OrchestrationAgent-low-discrepancy-analysis-confidence) Discrepancy analysis confidence (0.290) below threshold (0.65).
+  Data: {
+  "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+  "agentType": "OrchestrationAgent"
+}
+
+[6/19/2025, 3:14:39 PM] DEBUG (OrchestrationAgent-orchestration-run-supplement-agent) Running SupplementGeneratorAgent for job 9ef1ec3a-aece-40b2-a603-b366c2e1c421
+  Data: {
+  "context": {
+    "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+    "taskId": "33dcc000-297e-420d-b7e0-bd7e910a4bb8",
+    "priority": 3,
+    "timeoutMs": 75000,
+    "maxRetries": 0,
+    "retryCount": 0
+  }
+}
+
+[6/19/2025, 3:14:40 PM] INFO (supplement-analysis) Starting discrepancy analysis and supplement suggestion.
+
+[6/19/2025, 3:14:40 PM] SUCCESS (load-codes) Loaded 133 codes.
+
+[6/19/2025, 3:14:40 PM] INFO (load-codes) Loading Xactimate codes.
+
+[6/19/2025, 3:14:40 PM] DEBUG (supplement-analysis) Preparing to call AI for supplement analysis.
+  Data: {
+  "roofDataForPrompt": {
+    "pitch": "4/12",
+    "stories": 1,
+    "eave_length": 258,
+    "rake_length": null,
+    "valley_length": 16,
+    "property_address": "15011 DOUGLAS CIR OMAHA, NE 68154-2045",
+    "ridge_hip_length": 155,
+    "roof_area_squares": 22.95
+  },
+  "estimateLineItemsCount": 13
+}
+
+[6/19/2025, 3:14:40 PM] AI-PROMPT (supplement-analysis) AI Prompt sent (model: claude-sonnet-4-20250514):
+  Data: {
+  "prompt": "You are an expert roofing supplement specialist with extensive knowledge of Xactimate codes and roofing industry standards. Analyze the provided estimate and roof data to identify ALL missing items or discrepancies.\n\n**CRITICAL OUTPUT REQUIREMENTS:**\n- Output MUST be a valid JSON array of objects\n- Include multiple items when appropriate (2-5+ items common)\n- Do not include any text outside the JSON array\n- Each object must have ALL required fields\n\n**JSON Schema - Each object must contain:**\n{\n  \"line_item\": \"string - Clear, specific description\",\n  \"reason\": \"string - Detailed justification with measurements/calculations\", \n  \"xactimate_code\": \"string - Exact code from reference list\",\n  \"quantity\": number - Required quantity based on measurements,\n  \"unit\": \"string - LF/SF/SQ/EA etc.\",\n  \"confidence_score\": number - 0.0 to 1.0\n}\n\n**ANALYSIS PRIORITIES (Check ALL categories):**\n\n1. **Drip Edge & Gutter Apron**\n   - Rake edges: Need drip edge for water shedding\n   - Eave edges with gutters: Need gutter apron for fascia protection\n   - Calculate based on actual roof perimeter measurements\n\n2. **Ice & Water Barrier**\n   - Code requirement: 2 courses (6 ft width) along all eaves\n   - Valley coverage: 36\" width for full valley length\n   - Calculate: (eave_length × 6) + (valley_length × 3) = total SF\n\n3. **Ridge Cap Quality**\n   - Check if ridge cap is purpose-built vs cut from 3-tab shingles\n   - Purpose-built required for wind resistance per ASTM standards\n   - Quantity should match ridge/hip length from roof report\n\n4. **Starter Row**\n   - Universal starter strips required (not cut shingles)\n   - Check if listed as \"included in waste\" (inadequate)\n   - Should be separate line item with proper adhesive strips\n\n5. **Additional Roofing Components**\n   - Step flashing around penetrations\n   - Pipe boot flashing for roof penetrations\n   - Valley metal if open valleys\n   - High roof/steep roof charges if applicable\n\n**CALCULATION EXAMPLES:**\n- Drip Edge: rake_length from roof report\n- Ice Barrier: (200 LF eaves × 6 ft) + (40 LF valleys × 3 ft) = 1320 SF\n- Ridge Cap: ridge_hip_length from roof report\n- Starter: eave_length from roof report\n\n**VALIDATION CHECKS:**\n- Cross-reference against existing estimate items\n- Ensure quantities are reasonable for roof size\n- Verify Xactimate codes exist in reference list\n- Check units match item type (LF for linear, SF for area)\n\n**OUTPUT FORMAT EXAMPLE:**\n[\n  {\n    \"line_item\": \"Drip Edge\",\n    \"reason\": \"Missing drip edge for 158 LF of rake edges per roof report. Required for proper water shedding and fascia protection.\",\n    \"xactimate_code\": \"RFG DRIP\", \n    \"quantity\": 158,\n    \"unit\": \"LF\",\n    \"confidence_score\": 0.89\n  },\n  {\n    \"line_item\": \"Ice & Water Barrier\",\n    \"reason\": \"Code requires ice barrier coverage. Calculation: 200 LF eaves × 6 ft + 40 LF valleys × 3 ft = 1320 SF total needed.\",\n    \"xactimate_code\": \"RFG IWS\",\n    \"quantity\": 1320, \n    \"unit\": \"SF\",\n    \"confidence_score\": 0.94\n  },\n  {\n    \"line_item\": \"Universal Starter Row\",\n    \"reason\": \"No proper starter row found in estimate. Universal starter required for 200 LF of eave edges per wind resistance standards.\",\n    \"xactimate_code\": \"RFG STARTER\",\n    \"quantity\": 200,\n    \"unit\": \"LF\", \n    \"confidence_score\": 0.87\n  }\n]\n\n**INPUT DATA:**\n\nEstimate Line Items:\n[\n  {\n    \"description\": \"Remove Laminated - comp. shingle rfg (per SHINGLE)\",\n    \"quantity\": 7,\n    \"unit\": \"EA\",\n    \"unitPrice\": 9.78,\n    \"totalPrice\": 68.46\n  },\n  {\n    \"description\": \"Laminated - comp. shingle rfg (per SHINGLE)\",\n    \"quantity\": 7,\n    \"unit\": \"EA\",\n    \"unitPrice\": 22.41,\n    \"totalPrice\": 158.33\n  },\n  {\n    \"description\": \"Remove Laminated - comp. shingle rfg (per SHINGLE)\",\n    \"quantity\": 5,\n    \"unit\": \"EA\",\n    \"unitPrice\": 9.78,\n    \"totalPrice\": 48.9\n  },\n  {\n    \"description\": \"Laminated - comp. shingle rfg (per SHINGLE)\",\n    \"quantity\": 5,\n    \"unit\": \"EA\",\n    \"unitPrice\": 22.41,\n    \"totalPrice\": 113.09\n  },\n  {\n    \"description\": \"R&R Rain cap - 6\\\"\",\n    \"quantity\": 1,\n    \"unit\": \"EA\",\n    \"unitPrice\": 64.19,\n    \"totalPrice\": 66.49\n  },\n  {\n    \"description\": \"R&R Roof vent - turtle type - Metal\",\n    \"quantity\": 2,\n    \"unit\": \"EA\",\n    \"unitPrice\": 95.24,\n    \"totalPrice\": 193.83\n  },\n  {\n    \"description\": \"R&R Wrap wood window frame & trim with aluminum sheet - Small\",\n    \"quantity\": 1,\n    \"unit\": \"EA\",\n    \"unitPrice\": 189.83,\n    \"totalPrice\": 192.99\n  },\n  {\n    \"description\": \"R&R Downspout - aluminum - 6\\\"\",\n    \"quantity\": 25,\n    \"unit\": \"LF\",\n    \"unitPrice\": 13.88,\n    \"totalPrice\": 361.7\n  },\n  {\n    \"description\": \"R&R Gutter guard/screen - High grade\",\n    \"quantity\": 45.92,\n    \"unit\": \"LF\",\n    \"unitPrice\": 15.55,\n    \"totalPrice\": 724.67\n  },\n  {\n    \"description\": \"R&R Wrap wood window frame & trim with aluminum sheet - Small\",\n    \"quantity\": 1,\n    \"unit\": \"EA\",\n    \"unitPrice\": 189.83,\n    \"totalPrice\": 192.99\n  },\n  {\n    \"description\": \"R&R Gutter - aluminum - up to 5\\\"\",\n    \"quantity\": 52.58,\n    \"unit\": \"LF\",\n    \"unitPrice\": 11.24,\n    \"totalPrice\": 613.23\n  },\n  {\n    \"description\": \"Gutter guard/screen - High grade\",\n    \"quantity\": 52.58,\n    \"unit\": \"LF\",\n    \"unitPrice\": 14.78,\n    \"totalPrice\": 789.28\n  },\n  {\n    \"description\": \"Haul debris - per pickup truck load - including dump fees\",\n    \"quantity\": 0.25,\n    \"unit\": \"EA\",\n    \"unitPrice\": 163.08,\n    \"totalPrice\": 40.77\n  }\n]\n\nRoof Measurements:\n{\n  \"property_address\": \"15011 DOUGLAS CIR OMAHA, NE 68154-2045\",\n  \"roof_area_squares\": 22.95,\n  \"eave_length\": 258,\n  \"rake_length\": null,\n  \"ridge_hip_length\": 155,\n  \"valley_length\": 16,\n  \"stories\": 1,\n  \"pitch\": \"4/12\"\n}\n\nXactimate Reference Codes:\nRFG 220: 3 tab -20 Yr comp shingle roofing - incl, felt\nRFG 220S: 3 tab - 20 Yr comp shingle roofing -w/out felt\nRFG 220E: 3 tab 20 Yr comp. shingles (PER SHINGLE)\nRFG 240: 3 Tab 25 yr shingle roofing incl. felt\nRFG 240S: 3 tab - 25 Yr comp shingle roofing -w/out\nRFG 240E: 3 tab 25 Yr comp. shingles (PER SHINGLE)\nRFG 300: Laminated -comp shingle roofing incl. felt\nRFG 300S: Laminated comp shingle roofing -w/out\nRFG 300E: Laminated comp shingle - (PER SHINGLE)\nRFG 400: Laminaged - High Grade Comp shingle inc felt\nRFG ARMVN: Tear off comp shingles (no haul off)\nRFG ARMV: Tear off comp shingles including haul off 3-Tab\nRFG ARMV>: Tear off comp shingles including haul off - Laminated\nRFG ADDRMVN: Additional layer comp shingles remove( No haul off) 3 Tab\nRFG ADDRMV: Additional layer comp shingles remove and haul off - 3 Tab\nRFG ADDRMV>: Add Layer of compl shingles remove and dipsose Laminated\nRFG BI: Modified Bitumen Roof\nRFG BIRMV: Removal, haul and dispose of bitumen roof\nRFG CFG: Corrogated fiberglass Roofing (green house type)\nRFG DRIP: Drip edge\nRFG FELT15: Roofing felt , 15lb\nRFG FELT30: Roofing felt, 30lb\nRFG FLPIPE: Flashing Pipe Jack\nRFG FLPIPEL: Flashing Pipe Jack Lead\nRFG HIGH: Additional Charge for high roof 2 stories or >\nRFG STEEP: Additional Charge for steep roof 7/12 - 9/12\nRFG IWS: Ice & Water Shield\nRFG MTL: Metal roofing - baked on paint\nRFG PAV: Power Attic Vent\nRFG PAVC: Power Attic Vent ( Cover only)\nRFG PAVC-: Power Attic Vent Plastic (cover only)\nRFG RIDGC: Ridge Cap - comp shingles\nRFG RIDGC+: Ridge Cap - High Profile comp shingles\nRFG RL: Roll Roofing\nRFG RLRMV: Removal , haul off of roll roofing\nRFG VENTA: Ridge Vent Aluminum\nRFG VENTB: Turbine vent\nRFG VENTT: Turtle Vent\nRFG VENTR: Ridge vent shingle over\nRFG VENTE: Exhaust cap - through roof 6\"to 8\"\nHVC VENTCAP: Exterior cover for vent 5\"-6\" (Cap only)\nRFG VMTL: Valley metal\nRFG FLCH: Chimney flashing average- 32\"to 36\"\nFPL FLCP: Flue cap\nFPL CCAPM: Fire place chimney chase cap metal\nELS DISH: Satelight dish and receiver\nSFG GUTA: Gutter Aluminum 5\" eave and downspouts\nSFG GUTA>: Gutter Aluminum 6\" and above eave and downspouts\nSFG GUTG: Gutter Galvanized up to 5\" eave and downspouts\nSFG GUTP: Gutter plastic, eave and DS\nSFG GRD: Gutter guard/ screen\nPNT GUTG: Prime & paint gutter / downspout\nPNT GUTG>: Prime & paint gutter /downspout - oversized\nSFG FACFC4: Fascia, fiber cement 4\"\nSFG FACM4: Fascia, metal 4\"\nSFG FACV: Fascia, vinyl coated aluminum 4\" to 6\"\nSFG FACV>: Fascia, vinyl coated aluminum 7\" to 10\"\nSFG FACW4: Fascia wood, 4\"\nPNT FACW: Paint Fascia wood 4\" to 6 \"\nPNT FACW>: Paint Fascia Wood 6\" to 8\"\nSFG SFTFC: Soffit fiber cement\nSFG SFTM: Soffit Metal\nSFG SFTV: Soffit Vinyl\nSFG SFTW: Soffit Wood\nPNT SFTW: Paint Soffit Wood\nSDG MTL: Aluminum Siding\nSDG MTL+: Steel Siding\nSDG VINYL: Vinyl Siding\nSDG VINYLC: Vinyl outside corner post\nSDG FCLP<: Siding fiber cement 8\" lap\nSDG T111: Siding- hardboard panel paint grade\nSDG SHTR: Shutters - simulated wood (polystyrene)\nSDG SHTRW: Shutters wood - louvered or paneled\nSDG SHTRA: Shutters aluminum\nPNT SHTR: Paint Shutters per side (set)\nSDG WDWRAP: Wrap Wood window frame & trim with alum sheet\nSDG WRAPGD: Wrap Wood Garage Door frame and trim with aluminum sheet ( PER LF)\nSDG WRAPP: Wrap Wood Post with Alum. (PER LF)\nWDR CLAD: Window Cladding\nWDR GBA: glazing bead aluminum\nWDR GBV: Glazing Bead Vinyl\nWDR GLAZ: reglaze window 10-16 sf\nWDR SCRN<: Window screen <9SF\nWDR SCRN: Winodw Screen 10-16 SF\nWDR SWS<: Solar window screen <9 SF\nWDR SWS: Solar window screen 10 16 SF\nSPE WWCPL: Window well cover plastic up to 42\" wide by 19\"\nPNT SDG: Paint Siding\nPNT SDGS: Stain & Finish wood siding\nPNT WDW: Paint wood window\nPNT OP: Paint door or window opening\nPNT DORT: Paint door/window trim & jamb 2 cts( per side)\nPNT XDOR: Paint exterior door\nPNT OH: Paint Overhead door\nPNT FRX: Paint french exterior door slab only (per side)\nPNT X1: Paint exterior one coat\nPNT X2: Paint exterior two coats\nDOR OH8: Overhead door and hardware 7-8'\nDOR STRMD: Storm door\nAWN PCDK: Patio cover- roof deck only - moderate load\nAWN PCDKINS: Patio Cover - Insulated roof deck only\nAWN PCFACG: Patio cover fascia end guttered\nAWN PCFACN: Patio Cover fascia end non guttered\nAWN WINA: Awning - window or door aluminum or steel\nAWN WINASP: Awning side panels alum/steel (per set)\nAWN WINACLR: Awning - Aluminum or steel - add for each color stripe\nHVC ACFINS: Comb and straighten A/C condensor fins - with trip charge\nHVC DVENTHD: clothes dryer vent cover\nHVC ACFINC: A/C fin condenser cage (bid item)\nSTU COLOR: Stucco color coat (redash) - sand texture\nSTU AV: Metal lath & stucco\nSTU SYNW: Synthetic stucco on 1\" poly board - water managed\nSTU SYN: Synthetic stucco on 1\" poly board\nPNT STU: Paint Stucco\nXST SHEDMB<: Storage shed- Metal Barn Type (gambel) 10x8\nXST SHEDMG<: Storage Shed - metal gable type 8x 6\nLIT X: Exterior Light fixture\nLIT XPOST: Exterior post light fixture\nLIT XMOS: Motion Sensor for exterior light fixture\nLIT BLISP: Light bulb - incandescent spot/flood\nWDS DSF: Skylight - single dome fixed 6.6 to 9 SF\nWDS DDF: Skylight - double dome fixed 6.6 -9 SF\nWDS DDFL: Skylight - flashing kit - domed\nWDR CLADS: Skylight Cladding\nWDR SKY: Reglaze Skylight\nDMO PU: Haul debris per pick up load inc. dump fees\nDMO DUMP: Dumpster Load, Approx 20 yards, 4 tons of debris\nDMO TREEHR: Tree-Removal and disposal per hr incl. equip.\nDMO TREELHR: Tree - Removal - per hour (labor only)\nDRY 1/2-: Drywall 1/2\" hung taped , floated, ready for tex\nDRY 1/2: Drywall 1/2\" hung,taped,floated, orangepeel tex\nDRY ACR: Scrape off acoustic texture\nDRY AC: Acoustic popcorn texture\n\n**Return only the JSON array with no additional text, markdown formatting, or explanations.**"
+}
+
+[6/19/2025, 3:14:57 PM] AI-RESPONSE (supplement-analysis) AI call successful.
+  Data: {
+  "model": "claude-sonnet-4-20250514",
+  "provider": "anthropic",
+  "rawResponse": "[\n  {\n    \"line_item\": \"Drip Edge\",\n    \"reason\": \"Missing drip edge for roof edges. Based on 22.95 square roof with typical perimeter calculations, approximately 200 LF needed for proper water shedding and fascia protection.\",\n    \"xactimate_code\": \"RFG DRIP\",\n    \"quantity\": 200,\n    \"unit\": \"LF\",\n    \"confidence_score\": 0.85\n  },\n  {\n    \"line_item\": \"Ice & Water Barrier\",\n    \"reason\": \"Code requires ice barrier coverage. Calculation: 258 LF eaves × 6 ft + 16 LF valleys × 3 ft = 1596 SF total needed for proper water protection.\",\n    \"xactimate_code\": \"RFG IWS\",\n    \"quantity\": 1596,\n    \"unit\": \"SF\",\n    \"confidence_score\": 0.92\n  },\n  {\n    \"line_item\": \"Ridge Cap Shingles\",\n    \"reason\": \"No ridge cap found in estimate. Ridge/hip length of 155 LF requires proper ridge cap shingles for wind resistance and weatherproofing.\",\n    \"xactimate_code\": \"RFG RIDGC\",\n    \"quantity\": 155,\n    \"unit\": \"LF\",\n    \"confidence_score\": 0.88\n  },\n  {\n    \"line_item\": \"Roofing Felt 15lb\",\n    \"reason\": \"No underlayment found in estimate. 22.95 squares requires proper felt underlayment for code compliance and warranty requirements.\",\n    \"xactimate_code\": \"RFG FELT15\",\n    \"quantity\": 2295,\n    \"unit\": \"SF\",\n    \"confidence_score\": 0.90\n  },\n  {\n    \"line_item\": \"Pipe Jack Flashing\",\n    \"reason\": \"Two roof vents being R&R'd but no pipe jack flashing listed. Each penetration requires proper flashing for waterproofing.\",\n    \"xactimate_code\": \"RFG FLPIPE\",\n    \"quantity\": 2,\n    \"unit\": \"EA\",\n    \"confidence_score\": 0.87\n  },\n  {\n    \"line_item\": \"Valley Metal\",\n    \"reason\": \"16 LF of valleys identified in roof measurements but no valley metal found in estimate. Required for proper water channeling in valley areas.\",\n    \"xactimate_code\": \"RFG VMTL\",\n    \"quantity\": 16,\n    \"unit\": \"LF\",\n    \"confidence_score\": 0.83\n  }\n]"
+}
+
+[6/19/2025, 3:14:57 PM] INFO (supplement-analysis-parsing) Parsing AI supplement suggestions with enhanced multi-item strategy.
+
+[6/19/2025, 3:14:57 PM] DEBUG (supplement-analysis-parsing) Successfully created supplement item 2: "Ice & Water Barrier"
+
+[6/19/2025, 3:14:57 PM] DEBUG (supplement-analysis-parsing) Successfully created supplement item 6: "Valley Metal"
+
+[6/19/2025, 3:14:57 PM] SUCCESS (supplement-analysis-parsing) Successfully parsed 6 supplement items from 6 suggestions.
+
+[6/19/2025, 3:14:57 PM] DEBUG (supplement-analysis-parsing) Item 5: Created supplement
+  Data: {
+  "code": "RFG FLPIPE",
+  "reason": "Two roof vents being R&R'd but no pipe jack flashing listed. Each penetration requires proper flashing for waterproofing.",
+  "line_item": "Pipe Jack Flashing",
+  "confidence": 0.87
+}
+
+[6/19/2025, 3:14:57 PM] DEBUG (supplement-analysis-parsing) Strategy 1 SUCCESS: Direct JSON array parsing
+  Data: {
+  "count": 6
+}
+
+[6/19/2025, 3:14:57 PM] DEBUG (supplement-analysis-parsing) Item 3: Created supplement
+  Data: {
+  "code": "RFG RIDGC",
+  "reason": "No ridge cap found in estimate. Ridge/hip length of 155 LF requires proper ridge cap shingles for wind resistance and weatherproofing.",
+  "line_item": "Ridge Cap Shingles",
+  "confidence": 0.88
+}
+
+[6/19/2025, 3:14:57 PM] DEBUG (supplement-analysis-parsing) Successfully created supplement item 3: "Ridge Cap Shingles"
+
+[6/19/2025, 3:14:57 PM] DEBUG (supplement-analysis-parsing) Extracted 6 raw suggestions from AI response.
+  Data: {
+  "suggestions": [
+    {
+      "unit": "LF",
+      "reason": "Missing drip edge for roof edges. Based on 22.95 square roof with typical perimeter calculations, approximately 200 LF needed for proper water shedding and fascia protection.",
+      "quantity": 200,
+      "line_item": "Drip Edge",
+      "xactimate_code": "RFG DRIP",
+      "confidence_score": 0.85
+    },
+    {
+      "unit": "SF",
+      "reason": "Code requires ice barrier coverage. Calculation: 258 LF eaves × 6 ft + 16 LF valleys × 3 ft = 1596 SF total needed for proper water protection.",
+      "quantity": 1596,
+      "line_item": "Ice & Water Barrier",
+      "xactimate_code": "RFG IWS",
+      "confidence_score": 0.92
+    },
+    {
+      "unit": "LF",
+      "reason": "No ridge cap found in estimate. Ridge/hip length of 155 LF requires proper ridge cap shingles for wind resistance and weatherproofing.",
+      "quantity": 155,
+      "line_item": "Ridge Cap Shingles",
+      "xactimate_code": "RFG RIDGC",
+      "confidence_score": 0.88
+    },
+    {
+      "unit": "SF",
+      "reason": "No underlayment found in estimate. 22.95 squares requires proper felt underlayment for code compliance and warranty requirements.",
+      "quantity": 2295,
+      "line_item": "Roofing Felt 15lb",
+      "xactimate_code": "RFG FELT15",
+      "confidence_score": 0.9
+    },
+    {
+      "unit": "EA",
+      "reason": "Two roof vents being R&R'd but no pipe jack flashing listed. Each penetration requires proper flashing for waterproofing.",
+      "quantity": 2,
+      "line_item": "Pipe Jack Flashing",
+      "xactimate_code": "RFG FLPIPE",
+      "confidence_score": 0.87
+    },
+    {
+      "unit": "LF",
+      "reason": "16 LF of valleys identified in roof measurements but no valley metal found in estimate. Required for proper water channeling in valley areas.",
+      "quantity": 16,
+      "line_item": "Valley Metal",
+      "xactimate_code": "RFG VMTL",
+      "confidence_score": 0.83
+    }
+  ]
+}
+
+[6/19/2025, 3:14:57 PM] DEBUG (supplement-analysis-parsing) Successfully created supplement item 4: "Roofing Felt 15lb"
+
+[6/19/2025, 3:14:57 PM] DEBUG (supplement-analysis-parsing) Successfully created supplement item 1: "Drip Edge"
+
+[6/19/2025, 3:14:57 PM] SUCCESS (supplement-analysis) Supplement analysis and suggestion completed.
+  Data: {
+  "count": 6
+}
+
+[6/19/2025, 3:14:57 PM] DEBUG (supplement-analysis-parsing) Item 1: Created supplement
+  Data: {
+  "code": "RFG DRIP",
+  "reason": "Missing drip edge for roof edges. Based on 22.95 square roof with typical perimeter calculations, approximately 200 LF needed for proper water shedding and fascia protection.",
+  "line_item": "Drip Edge",
+  "confidence": 0.85
+}
+
+[6/19/2025, 3:14:57 PM] DEBUG (supplement-analysis-parsing) Successfully created supplement item 5: "Pipe Jack Flashing"
+
+[6/19/2025, 3:14:57 PM] DEBUG (supplement-analysis-parsing) Item 6: Created supplement
+  Data: {
+  "code": "RFG VMTL",
+  "reason": "16 LF of valleys identified in roof measurements but no valley metal found in estimate. Required for proper water channeling in valley areas.",
+  "line_item": "Valley Metal",
+  "confidence": 0.83
+}
+
+[6/19/2025, 3:14:57 PM] DEBUG (supplement-analysis-parsing) Item 2: Created supplement
+  Data: {
+  "code": "RFG IWS",
+  "reason": "Code requires ice barrier coverage. Calculation: 258 LF eaves × 6 ft + 16 LF valleys × 3 ft = 1596 SF total needed for proper water protection.",
+  "line_item": "Ice & Water Barrier",
+  "confidence": 0.92
+}
+
+[6/19/2025, 3:14:57 PM] DEBUG (supplement-analysis-parsing) Item 4: Created supplement
+  Data: {
+  "code": "RFG FELT15",
+  "reason": "No underlayment found in estimate. 22.95 squares requires proper felt underlayment for code compliance and warranty requirements.",
+  "line_item": "Roofing Felt 15lb",
+  "confidence": 0.9
+}
+
+[6/19/2025, 3:14:58 PM] SUCCESS (SupplementGeneratorAgent-supplement-save-success) 7 validated supplement items saved to database
+  Data: {
+  "count": 7,
+  "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+  "agentType": "SupplementGeneratorAgent"
+}
+
+[6/19/2025, 3:14:58 PM] SUCCESS (SupplementGeneratorAgent-multi-pass-complete) Multi-pass supplement generation completed for job 9ef1ec3a-aece-40b2-a603-b366c2e1c421. Final results: 7 supplements, confidence: 0.891
+  Data: {
+  "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+  "agentType": "SupplementGeneratorAgent",
+  "itemCount": 7,
+  "confidence": 0.891
+}
+
+[6/19/2025, 3:14:58 PM] INFO (supervision_start) SupervisorAgent processing started
+
+[6/19/2025, 3:14:58 PM] INFO (orchestration_complete) OrchestrationAgent processing finished with status: COMPLETED
+  Data: {
+  "outputSummary": {
+    "jobId": "9ef1ec3a-aece-40b2-a603-b366c2e1c421",
+    "status": "COMPLETED",
+    "errorCount": 0,
+    "wasRoofReportProvided": true,
+    "estimateExtractionConfidence": 0.8,
+    "discrepancyAnalysisConfidence": 0.29000000000000004,
+    "roofReportExtractionConfidence": 0.79,
+    "supplementGenerationConfidence": 0.891
+  }
+}
+
+[6/19/2025, 3:14:58 PM] INFO (orchestration_execute_complete) OrchestrationAgent.execute() completed successfully
+
+[6/19/2025, 3:15:05 PM] INFO (database_save_start) Saving processed data to database
+
+[6/19/2025, 3:15:05 PM] INFO (supervision_complete) SupervisorAgent finished. Outcome: COMPLETED
+
+[6/19/2025, 3:15:06 PM] INFO (supplement_items_insertion) Inserting 7 supplement items
+
+[6/19/2025, 3:15:06 PM] INFO (database_save_complete) Finished saving data to database
+
+[6/19/2025, 3:15:06 PM] INFO (job_finalizing) Finalizing job. Status: COMPLETED
+
+[6/19/2025, 3:15:06 PM] INFO (job-completed) Job COMPLETED. Processing time: 100301ms.

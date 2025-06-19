@@ -313,13 +313,6 @@ export class OrchestrationAgent extends Agent {
         const supplementTaskContext = { ...context, taskId: uuidv4(), jobId: input.jobId, priority: 3 };
         this.log(LogLevel.DEBUG, 'orchestration-run-supplement-agent', `Running SupplementGeneratorAgent for job ${input.jobId}`, { context: supplementTaskContext });
         
-        // ULTRA AGGRESSIVE LOGGING TO TRACK EXECUTION PATH
-        console.log(`🔥🔥🔥 ORCHESTRATION CALLING SUPPLEMENT AGENT FOR JOB ${input.jobId} 🔥🔥🔥`);
-        console.log('About to call supplementAgent.execute() with:', {
-          hasJobData: !!fullJobData,
-          hasLineItems: !!estimateLineItemsForSupplement,
-          supplementTaskContext
-        });
         
         try {
             output.supplementGeneration = await supplementAgent.execute(
