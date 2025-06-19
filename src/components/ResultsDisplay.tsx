@@ -73,7 +73,11 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
     console.log('getSourceIcon called with:', {
       line_item: item.line_item,
       source_system: item.source_system,
-      business_rule_applied: item.business_rule_applied
+      business_rule_applied: item.business_rule_applied,
+      validation_status: item.validation_status,
+      source_system_type: typeof item.source_system,
+      item_keys: Object.keys(item),
+      full_item: item
     });
     
     if (item.source_system === 'business_rule') {

@@ -151,7 +151,9 @@ export class SupplementGeneratorAgent extends Agent {
           aiSupplementsDebug: aiSupplements.map(s => ({
             line_item: s.line_item,
             source_system: s.source_system,
-            has_source_system: !!s.source_system
+            has_source_system: !!s.source_system,
+            business_rule_applied: s.business_rule_applied,
+            validation_status: s.validation_status
           }))
         });
       } catch (aiError: any) {
@@ -452,8 +454,10 @@ export class SupplementGeneratorAgent extends Agent {
               line_item: item.line_item,
               source_system: item.source_system,
               business_rule_applied: item.business_rule_applied,
+              validation_status: item.validation_status,
               has_source_system: !!item.source_system,
-              source_system_type: typeof item.source_system
+              source_system_type: typeof item.source_system,
+              id: item.id
             })),
             agentType: this.agentType
           });
@@ -468,6 +472,18 @@ export class SupplementGeneratorAgent extends Agent {
             overallConfidence *= 0.8; // Reduce confidence for save failures
           } else {
             this.log(LogLevel.SUCCESS, 'supplement-save-success', `${sortedFinalSupplements.length} validated supplement items saved to database`, { jobId, count: sortedFinalSupplements.length, agentType: this.agentType });
+            
+            // Verify what was actually saved
+            await this.writeJobLog(jobId, 'multi-pass-save-verification', LogLevel.INFO, `Multi-Pass System: Verifying saved supplements`, {
+              savedCount: sortedFinalSupplements.length,
+              savedItems: sortedFinalSupplements.map(item => ({
+                id: item.id,
+                line_item: item.line_item,
+                source_system: item.source_system,
+                business_rule_applied: item.business_rule_applied,
+                validation_status: item.validation_status
+              }))
+            });
           }
         } catch (saveError: any) {
           this.log(LogLevel.ERROR, 'supplement-save-error', `Error saving supplements: ${saveError.message}`, { error: saveError.message, agentType: this.agentType });
