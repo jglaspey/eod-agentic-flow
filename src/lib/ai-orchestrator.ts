@@ -189,7 +189,8 @@ export class AIOrchestrator {
       const suggestions = this.tryMultipleParsingStrategies(aiResponse, step)
       logStreamer.logDebug(this.jobId, step, `Extracted ${suggestions.length} raw suggestions from AI response.`, { suggestions })
 
-      for (const [index, suggestion] of suggestions.entries()) {
+      for (let index = 0; index < suggestions.length; index++) {
+        const suggestion = suggestions[index]
         const parsedItem = this.createSupplementFromSuggestion(suggestion, index, step)
         if (parsedItem) {
           supplementItems.push(parsedItem)

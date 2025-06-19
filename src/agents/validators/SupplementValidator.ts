@@ -326,7 +326,8 @@ export class SupplementValidator {
   private findSimilarCode(description: string): string | undefined {
     const descLower = description.toLowerCase()
     
-    for (const [code, codeDesc] of this.xactimateCodeMap.entries()) {
+    for (const entry of Array.from(this.xactimateCodeMap.entries())) {
+      const [code, codeDesc] = entry
       if (codeDesc.toLowerCase().includes(descLower) || descLower.includes(codeDesc.toLowerCase())) {
         return code
       }
