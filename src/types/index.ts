@@ -42,6 +42,9 @@ export interface SupplementItem {
   reason: string
   confidence_score: number
   calculation_details?: string
+  source_system?: 'business_rule' | 'ai_suggestion' | 'multi_pass_v1' | 'legacy_v0'
+  validation_status?: 'pending' | 'validated' | 'rejected'
+  business_rule_applied?: string[]
 }
 
 export interface JobReport {

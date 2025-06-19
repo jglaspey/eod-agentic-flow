@@ -57,6 +57,38 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
     return 'text-red-600'
   }
 
+  const getRuleDisplayName = (ruleId: string | undefined) => {
+    if (!ruleId) return 'Unknown Rule'
+    const ruleNames = {
+      'hip_ridge_cap_check': '1. Ridge Cap',
+      'starter_row_check': '2. Starter Row', 
+      'drip_edge_gutter_check': '3. Drip Edge',
+      'ice_water_barrier_check': '4. Ice Barrier'
+    }
+    return ruleNames[ruleId as keyof typeof ruleNames] || 'Unknown Rule'
+  }
+
+  const getSourceIcon = (item: SupplementItem) => {
+    if (item.source_system === 'business_rule') {
+      return (
+        <div className="flex items-center">
+          <div className="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
+          <span className="text-xs text-blue-600 font-medium">
+            {getRuleDisplayName(item.business_rule_applied?.[0])}
+          </span>
+        </div>
+      )
+    } else if (item.source_system === 'ai_suggestion') {
+      return (
+        <div className="flex items-center">
+          <div className="w-2 h-2 bg-purple-500 rounded-full mr-2"></div>
+          <span className="text-xs text-purple-600 font-medium">AI Suggestion</span>
+        </div>
+      )
+    }
+    return null
+  }
+
   if (job.status === 'processing' && !jobData) {
     return (
       <div className="min-h-[400px] flex flex-col items-center justify-center bg-white rounded-lg shadow-md p-6 text-center">
@@ -289,13 +321,30 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
 
       {/* Supplement Items */}
       <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Recommended Supplement Items</h2>
+        <div className="flex justify-between items-start mb-4">
+          <h2 className="text-xl font-semibold text-gray-900">Recommended Supplement Items</h2>
+          
+          {/* Legend */}
+          <div className="flex items-center space-x-6">
+            <div className="flex items-center">
+              <div className="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
+              <span className="text-xs text-gray-600">Business Rules (Deterministic)</span>
+            </div>
+            <div className="flex items-center">
+              <div className="w-2 h-2 bg-purple-500 rounded-full mr-2"></div>
+              <span className="text-xs text-gray-600">AI Suggestions (Probabilistic)</span>
+            </div>
+          </div>
+        </div>
         
         {supplements && supplements.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Source
+                  </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Line Item
                   </th>
@@ -315,7 +364,10 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {supplements.map((item, index) => (
-                  <tr key={index}>
+                  <tr key={index} className={item.source_system === 'business_rule' ? 'bg-blue-50/30' : 'bg-white'}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      {getSourceIcon(item)}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       {item.line_item}
                     </td>

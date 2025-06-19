@@ -203,8 +203,31 @@ export class SupplementGeneratorAgent extends Agent {
         // Continue without business rules supplements
       }
 
-      // Combine AI and business rules supplements
-      const combinedSupplements = [...aiSupplements, ...rulesSupplements];
+      // Add source attribution to supplements
+      const aiSupplementsWithSource = aiSupplements.map(supplement => ({
+        ...supplement,
+        source_system: 'ai_suggestion' as const,
+        business_rule_applied: undefined,
+        validation_status: 'pending' as const
+      }));
+
+      const rulesSupplementsWithSource = rulesSupplements.map((supplement, index) => {
+        // Find which rule generated this supplement
+        const relatedResult = rulesResults.find(result => 
+          result.action === 'add' && 
+          result.supplement?.line_item === supplement.line_item
+        );
+        
+        return {
+          ...supplement,
+          source_system: 'business_rule' as const,
+          business_rule_applied: relatedResult ? [relatedResult.ruleId] : ['unknown_rule'],
+          validation_status: 'pending' as const
+        };
+      });
+
+      // Combine supplements in standardized order: Business Rules first (1-4), then AI suggestions
+      const combinedSupplements = [...rulesSupplementsWithSource, ...aiSupplementsWithSource];
       this.log(LogLevel.INFO, 'supplements-combined', `Combined supplements: ${aiSupplements.length} from AI + ${rulesSupplements.length} from business rules = ${combinedSupplements.length} total`, { 
         aiCount: aiSupplements.length, 
         rulesCount: rulesSupplements.length, 
@@ -352,19 +375,46 @@ export class SupplementGeneratorAgent extends Agent {
         }
       });
 
+      // Sort final supplements: Business Rules first (in rule order), then AI suggestions
+      const sortedFinalSupplements = [...finalSupplements].sort((a, b) => {
+        // Business rules first
+        if (a.source_system === 'business_rule' && b.source_system !== 'business_rule') return -1;
+        if (a.source_system !== 'business_rule' && b.source_system === 'business_rule') return 1;
+        
+        // Within business rules, sort by rule priority
+        if (a.source_system === 'business_rule' && b.source_system === 'business_rule') {
+          const ruleOrder = {
+            'hip_ridge_cap_check': 1,
+            'starter_row_check': 2, 
+            'drip_edge_gutter_check': 3,
+            'ice_water_barrier_check': 4
+          };
+          
+          const aRule = a.business_rule_applied?.[0] || 'unknown';
+          const bRule = b.business_rule_applied?.[0] || 'unknown';
+          const aPriority = ruleOrder[aRule as keyof typeof ruleOrder] || 999;
+          const bPriority = ruleOrder[bRule as keyof typeof ruleOrder] || 999;
+          
+          return aPriority - bPriority;
+        }
+        
+        // AI suggestions keep their original order
+        return 0;
+      });
+
       // Save valid supplements to database
-      if (finalSupplements.length > 0) {
+      if (sortedFinalSupplements.length > 0) {
         try {
           const { error: supplementSaveError } = await this.supabase
             .from('supplement_items')
-            .insert(finalSupplements.map(item => ({ ...item, job_id: jobId })));
+            .insert(sortedFinalSupplements.map(item => ({ ...item, job_id: jobId })));
 
           if (supplementSaveError) {
             this.log(LogLevel.ERROR, 'supplement-save-failed', `Failed to save supplement items: ${supplementSaveError.message}`, { jobId, error: supplementSaveError, agentType: this.agentType });
             issuesOrSuggestions.push(`Database save failed: ${supplementSaveError.message}`);
             overallConfidence *= 0.8; // Reduce confidence for save failures
           } else {
-            this.log(LogLevel.SUCCESS, 'supplement-save-success', `${finalSupplements.length} validated supplement items saved to database`, { jobId, count: finalSupplements.length, agentType: this.agentType });
+            this.log(LogLevel.SUCCESS, 'supplement-save-success', `${sortedFinalSupplements.length} validated supplement items saved to database`, { jobId, count: sortedFinalSupplements.length, agentType: this.agentType });
           }
         } catch (saveError: any) {
           this.log(LogLevel.ERROR, 'supplement-save-error', `Error saving supplements: ${saveError.message}`, { error: saveError.message, agentType: this.agentType });
@@ -374,7 +424,7 @@ export class SupplementGeneratorAgent extends Agent {
       }
 
       // Transform to output format
-      generatedSupplementsForOutput = finalSupplements.map((dbItem): GeneratedSupplementItem => {
+      generatedSupplementsForOutput = sortedFinalSupplements.map((dbItem): GeneratedSupplementItem => {
         const generatedId = dbItem.id || uuidv4();
         supplementRationales[generatedId] = dbItem.reason;
         return {
