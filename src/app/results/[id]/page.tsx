@@ -13,6 +13,90 @@ interface ResultsPageProps {
   }
 }
 
+// Fetch all logs from database for download/copy
+async function fetchAllLogs(jobId: string): Promise<string> {
+  const supabase = getSupabaseClient()
+  
+  try {
+    // Fetch logs from job_logs table
+    const { data: logs, error } = await supabase
+      .from('job_logs')
+      .select('ts, level, step, message, data')
+      .eq('job_id', jobId)
+      .order('ts', { ascending: true })
+    
+    if (error) {
+      console.error('Error fetching logs:', error)
+      return 'Error fetching logs'
+    }
+    
+    if (!logs || logs.length === 0) {
+      return 'No logs found for this job'
+    }
+    
+    // Format logs for export
+    const formattedLogs = logs.map(log => {
+      const timestamp = new Date(log.ts).toLocaleString()
+      const dataStr = log.data ? `\n  Data: ${JSON.stringify(log.data, null, 2)}` : ''
+      return `[${timestamp}] ${log.level.toUpperCase()} (${log.step}) ${log.message}${dataStr}`
+    }).join('\n\n')
+    
+    return `Job Logs - ID: ${jobId}\nGenerated: ${new Date().toLocaleString()}\n${'='.repeat(60)}\n\n${formattedLogs}`
+  } catch (err) {
+    console.error('Unexpected error fetching logs:', err)
+    return 'Error fetching logs'
+  }
+}
+
+// Fetch only multi-pass logs
+async function fetchMultiPassLogs(jobId: string): Promise<string> {
+  const supabase = getSupabaseClient()
+  
+  try {
+    // Fetch only multi-pass related logs
+    const { data: logs, error } = await supabase
+      .from('job_logs')
+      .select('ts, level, step, message, data')
+      .eq('job_id', jobId)
+      .like('step', 'multi-pass%')
+      .order('ts', { ascending: true })
+    
+    if (error) {
+      console.error('Error fetching multi-pass logs:', error)
+      return 'Error fetching multi-pass logs'
+    }
+    
+    if (!logs || logs.length === 0) {
+      return 'No multi-pass logs found for this job'
+    }
+    
+    // Format logs for export with nice grouping
+    const formattedLogs = logs.map(log => {
+      const timestamp = new Date(log.ts).toLocaleString()
+      const dataStr = log.data ? `\n  Data: ${JSON.stringify(log.data, null, 2)}` : ''
+      return `[${timestamp}] ${log.level.toUpperCase()} (${log.step}) ${log.message}${dataStr}`
+    }).join('\n\n')
+    
+    return `Multi-Pass Logs - Job ID: ${jobId}\nGenerated: ${new Date().toLocaleString()}\n${'='.repeat(60)}\n\n${formattedLogs}`
+  } catch (err) {
+    console.error('Unexpected error fetching multi-pass logs:', err)
+    return 'Error fetching multi-pass logs'
+  }
+}
+
+// Download logs as a file
+function downloadLogs(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/plain' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
 async function getJobData(jobId: string) {
   const supabase = getSupabaseClient()
   const MAX_RETRIES = 10 // Increased retries for Vercel
@@ -155,8 +239,9 @@ export default function ResultsPage({ params }: ResultsPageProps) {
     supplements: SupplementItem[]
   } | null>(null)
   const [isProcessing, setIsProcessing] = useState(true)
-  const [showLogs, setShowLogs] = useState(true)
+  const [showLogs, setShowLogs] = useState(false) // Collapsed by default
   const [error, setError] = useState<string | null>(null)
+  const [showLogOptions, setShowLogOptions] = useState(false)
 
   useEffect(() => {
     getJobData(params.id).then(data => {
@@ -173,6 +258,17 @@ export default function ResultsPage({ params }: ResultsPageProps) {
       setIsProcessing(false)
     })
   }, [params.id])
+
+  // Click outside handler for dropdown
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (showLogOptions && !(event.target as HTMLElement).closest('.log-options-dropdown')) {
+        setShowLogOptions(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showLogOptions])
 
   if (error) {
     return (
@@ -201,32 +297,128 @@ export default function ResultsPage({ params }: ResultsPageProps) {
         </Link>
       </div>
       {isProcessing ? (
-        <LogTerminal jobId={params.id} onComplete={async () => {
-          // Add a delay before fetching to ensure database replication on Vercel
-          console.log('Job completed, waiting for database replication...')
-          await new Promise(resolve => setTimeout(resolve, 3000))
-          
-          const fresh = await getJobData(params.id)
-          if (fresh) {
-            setJobData(fresh)
-            setIsProcessing(false)
-            setShowLogs(false)
-          } else {
-            setError('Failed to load completed job data')
-            setIsProcessing(false)
-          }
-        }} />
+        <div className="space-y-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <h2 className="text-lg font-semibold text-blue-900 mb-2">Processing Job...</h2>
+            <p className="text-blue-700">Your analysis is in progress. Logs will appear below.</p>
+          </div>
+          <LogTerminal jobId={params.id} onComplete={async () => {
+            // Add a delay before fetching to ensure database replication on Vercel
+            console.log('Job completed, waiting for database replication...')
+            await new Promise(resolve => setTimeout(resolve, 3000))
+            
+            const fresh = await getJobData(params.id)
+            if (fresh) {
+              setJobData(fresh)
+              setIsProcessing(false)
+              setShowLogs(true) // Keep logs visible after completion
+            } else {
+              setError('Failed to load completed job data')
+              setIsProcessing(false)
+            }
+          }} />
+        </div>
       ) : (
-        <>
-          <button
-            className="mb-4 px-3 py-1 rounded bg-gray-200 hover:bg-gray-300 transition-colors"
-            onClick={() => setShowLogs(!showLogs)}
-          >
-            {showLogs ? 'Hide' : 'Show'} Processing Logs
-          </button>
-          {showLogs && <LogTerminal jobId={params.id} readonly />}
+        <div className="space-y-4">
+          {/* Results Display First */}
           <ResultsDisplay job={jobData.job} jobData={jobData.data} supplements={jobData.supplements} />
-        </>
+          
+          {/* Collapsible Logs Section at Bottom */}
+          <div className="border border-gray-200 rounded-lg overflow-hidden">
+            <div className="bg-gray-50 px-4 py-3 flex items-center justify-between">
+              <button
+                className="flex items-center gap-2 text-gray-700 hover:text-gray-900 transition-colors"
+                onClick={() => setShowLogs(!showLogs)}
+              >
+                <svg
+                  className={`w-4 h-4 transform transition-transform ${showLogs ? 'rotate-90' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                <span className="font-medium">Processing Logs</span>
+              </button>
+              
+              <div className="flex items-center gap-2">
+                <div className="relative log-options-dropdown">
+                  <button
+                    className="px-3 py-1 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors flex items-center gap-1"
+                    onClick={() => setShowLogOptions(!showLogOptions)}
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Export Logs
+                  </button>
+                  
+                  {showLogOptions && (
+                    <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
+                      <div className="p-2">
+                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-2 py-1">
+                          Copy to Clipboard
+                        </div>
+                        <button
+                          className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded"
+                          onClick={async () => {
+                            const logs = await fetchAllLogs(params.id)
+                            await navigator.clipboard.writeText(logs)
+                            alert('All logs copied to clipboard!')
+                            setShowLogOptions(false)
+                          }}
+                        >
+                          All Logs (Database)
+                        </button>
+                        <button
+                          className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded"
+                          onClick={async () => {
+                            const logs = await fetchMultiPassLogs(params.id)
+                            await navigator.clipboard.writeText(logs)
+                            alert('Multi-pass logs copied to clipboard!')
+                            setShowLogOptions(false)
+                          }}
+                        >
+                          Multi-Pass Logs Only
+                        </button>
+                        
+                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-2 py-1 mt-2">
+                          Download as File
+                        </div>
+                        <button
+                          className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded"
+                          onClick={async () => {
+                            const logs = await fetchAllLogs(params.id)
+                            downloadLogs(logs, `job-${params.id}-all-logs.txt`)
+                            setShowLogOptions(false)
+                          }}
+                        >
+                          All Logs (Database)
+                        </button>
+                        <button
+                          className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded"
+                          onClick={async () => {
+                            const logs = await fetchMultiPassLogs(params.id)
+                            downloadLogs(logs, `job-${params.id}-multipass-logs.txt`)
+                            setShowLogOptions(false)
+                          }}
+                        >
+                          Multi-Pass Logs Only
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            {showLogs && (
+              <div className="p-4">
+                <LogTerminal jobId={params.id} readonly />
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )
