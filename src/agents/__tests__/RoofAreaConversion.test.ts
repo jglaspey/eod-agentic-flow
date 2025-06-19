@@ -7,7 +7,7 @@ describe('Roof Area Conversion', () => {
       // Create mock roof data with area in square feet (as would come from extraction)
       const mockRoofData: Partial<RoofMeasurements> = {
         totalRoofArea: {
-          value: 2295, // This represents 2295 square feet
+          value: 2295, // This represents 2295 square feet (raw value from document)
           confidence: 0.9,
           rationale: 'Extracted from roof report',
           source: 'text',

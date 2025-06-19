@@ -1089,5 +1089,140 @@ Perfect! ✅ The branch has been successfully pushed to GitHub.
 - **Objects**: 62 objects (150.15 KiB) pushed
 - **Remote**: `https://github.com/jglaspey/eod-agentic-flow.git`
 
+## Next Steps Available:
+GitHub has provided a link to create a pull request:
+```
+https://github.com/jglaspey/eod-agentic-flow/pull/new/feature/multi-pass-supplement-generation
+```
+
+Your commits are now safely backed up on GitHub, including:
+1. The roof area squares conversion fix
+2. The comprehensive documentation updates
+3. All the V1 implementation work (tests, SQL scripts, etc.)
+
+The feature branch is ready for review or merging when you're ready! 🚀
+
+---
+
+_**User**_
+
+shoot. it seems that it's over-doing it. it went from 2300 squares, to .23 squares. instead of 23 squares
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+
+
+---
+
+
+
+---
+
+
+
+---
+
+
+
+---
+
+Ah, I see the issue! We have a **double conversion problem**. Let me check the current code to confirm what's happening.
+
+---
+
+Read file: src/agents/RoofReportExtractorAgent.ts
+
+---
+
+Perfect! I found the issue. In the AI prompt on line 552-553, we're telling the AI: **"If you find area in square feet, divide by 100"**. But then in our code, we're also dividing by 100. This creates a double conversion!
+
+Let me check the OrchestrationAgent to confirm:
+
+---
+
+Read file: src/agents/OrchestrationAgent.ts
+
+---
+
+Confirmed! Here's the **double conversion bug**:
+
+1. **AI Prompt** (line 552 in RoofReportExtractorAgent): "If you find area in square feet, divide by 100"
+2. **Code** (line 249 in OrchestrationAgent): `roofData.totalRoofArea.value / 100`
+
+So if the roof report shows 2300 sq ft:
+1. AI sees "2300 sq ft" → divides by 100 → returns 23 squares
+2. Our code takes 23 → divides by 100 again → stores 0.23 squares
+
+Let me fix this by removing the AI instruction and letting our code handle the conversion consistently:
+
+---
+
+
+
+---
+
+Now let me also update the validation comment to reflect that we expect square feet from the AI:
+
+---
+
+
+
+---
+
+Now let me update the validation to expect a reasonable square footage range instead of squares:
+
+---
+
+
+
+---
+
+Now let me update our test to reflect the correct expected behavior:
+
+---
+
+
+
+---
+
+Now let's run the test to make sure our fix works:
+
+---
+
+```bash
+npm test -- --testPathPattern=RoofAreaConversion.test.ts
+```
+
+```
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation % npm test -- --testPathPattern=RoofAr
+eaConversion.test.ts                                                    npm test -- --testPathPattern=RoofAr
+eaConversion.test.ts
+
+> roofing-estimate-analyzer@0.1.0 test
+> jest --testPathPattern=RoofAreaConversion.test.ts
+
+testPathPattern:
+
+  Option "testPathPattern" was replaced by "--testPathPatterns". "--testPathPatterns" is only available as a
+ command-line option.
+  
+  Please update your configuration.
+
+  CLI Options Documentation:
+  https://jestjs.io/docs/cli
+
+(base) jasonglaspey@Jasons-MacBook-Pro claudecode-supplement-creation %
+```
+
+---
+
+
+
 ---
 
