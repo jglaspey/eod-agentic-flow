@@ -172,11 +172,12 @@ export async function startRunnerIfNeeded(): Promise<void> {
   try {
     const supabase = getSupabaseClient();
     
-    // Check if any jobs are currently processing
+    // Check if any jobs are currently processing (only recent ones, not ancient stuck jobs)
     const { data: processingJobs, error } = await supabase
       .from('jobs')
-      .select('id')
+      .select('id, created_at')
       .eq('status', 'processing')
+      .gte('created_at', new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()) // Only jobs from last 2 hours
       .limit(1);
 
     if (error) {
@@ -184,9 +185,9 @@ export async function startRunnerIfNeeded(): Promise<void> {
       return;
     }
 
-    console.log(`🔍 Found ${processingJobs?.length || 0} jobs currently processing`);
+    console.log(`🔍 Found ${processingJobs?.length || 0} recent jobs currently processing`);
 
-    // If no jobs are processing, start the runner
+    // If no recent jobs are processing, start the runner
     if (!processingJobs || processingJobs.length === 0) {
       console.log('🚀 No jobs currently processing. Starting queue runner.');
       
