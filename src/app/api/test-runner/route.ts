@@ -1,16 +1,16 @@
 /**
- * Test endpoint to manually start the queue runner
- * This bypasses auth for debugging
+ * Test endpoint for simplified queue system
+ * Triggers processing and shows queue status
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET() {
   try {
-    console.log('🧪 Test runner endpoint called');
+    console.log('🧪 Test endpoint called (simplified approach)');
     
-    // Import queue functions
-    const { startRunnerIfNeeded, getQueueStatus, cleanupStuckJobs } = await import('@/lib/queue');
+    // Import available queue functions
+    const { getQueueStatus } = await import('@/lib/queue');
     const { getSupabaseClient } = await import('@/lib/supabase');
     
     // Get current queue status
@@ -32,25 +32,24 @@ export async function GET() {
     
     console.log('📋 Jobs in queue/processing:', jobs);
     
-    // Try to cleanup stuck jobs first
-    console.log('🧹 Cleaning up stuck jobs...');
-    const cleanedCount = await cleanupStuckJobs();
-    console.log(`🧹 Cleaned ${cleanedCount} stuck jobs`);
-    
-    // Start the runner
-    console.log('🚀 Starting queue runner...');
-    await startRunnerIfNeeded();
+    // Fire-and-forget trigger (like job creation does)
+    console.log('🚀 Triggering queue processing (fire-and-forget)...');
+    fetch('/api/jobs/process', {
+      method: 'POST',
+      keepalive: true,
+      headers: { 'Content-Type': 'application/json' }
+    });
     
     return NextResponse.json({
       success: true,
-      message: 'Queue runner started',
+      message: 'Processing trigger sent (simplified approach)',
       queueStatus,
-      jobs,
-      cleanedCount
+      jobs: jobs || [],
+      approach: 'simplified-fire-and-forget'
     });
     
   } catch (error) {
-    console.error('💥 Test runner error:', error);
+    console.error('💥 Test endpoint error:', error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
