@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { enqueueJob, getQueueStatus } from '@/lib/queue'
 import { verifyStorageAccess } from '@/lib/storage'
 
-export const maxDuration = 30; // Keep short for rapid job creation
+export const maxDuration = 60; // Allow time for immediate processing
 
 export async function POST(request: NextRequest) {
   try {
@@ -105,16 +105,39 @@ export async function POST(request: NextRequest) {
     // Get current queue status for user feedback
     const queueStatus = await getQueueStatus(userId);
 
-    // FIRE-AND-FORGET PROCESSING TRIGGER (Layer 1 Pattern)
-    console.log('🚀 Job created, triggering processing...');
+    // IMMEDIATE PROCESSING (Serverless-Compatible Pattern)
+    // Process the job immediately since fire-and-forget doesn't work in serverless
+    console.log('🚀 Job created, processing immediately...');
     
-    // Simple fire-and-forget fetch with absolute URL
-    const processingUrl = new URL('/api/jobs/process', request.url).toString();
-    fetch(processingUrl, {
-      method: 'POST',
-      keepalive: true, // Critical for serverless reliability
-      headers: { 'Content-Type': 'application/json' }
-    }); // Pure fire-and-forget - no .then() or .catch()
+    try {
+      const { claimNextJob, processJob, markJobCompleted, markJobFailed } = await import('@/lib/queue');
+      
+      console.log('🔍 Attempting to claim and process job immediately...');
+      const job = await claimNextJob();
+      if (job && job.jobId === result.jobId) {
+        console.log(`⚙️ Processing job ${job.jobId} immediately`);
+        await processJob(job.jobId, job.fileUrls);
+        await markJobCompleted(job.jobId);
+        console.log(`✅ Job ${job.jobId} completed immediately`);
+        
+        // Return completed status instead of queued
+        return NextResponse.json({
+          jobId: result.jobId,
+          status: 'completed',
+          queuePosition: 0,
+          estimatedWaitTime: 'Processing completed',
+          queueStatus: {
+            totalQueued: 0,
+            totalProcessing: 0,
+            userPosition: 0
+          },
+          processingMode: 'immediate'
+        });
+      }
+    } catch (error) {
+      console.error('❌ Immediate processing failed, job remains queued:', error);
+      // Continue with queued response if immediate processing fails
+    }
 
     return NextResponse.json({
       jobId: result.jobId,
