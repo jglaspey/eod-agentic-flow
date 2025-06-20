@@ -268,18 +268,27 @@ export async function claimNextJob(): Promise<{jobId: string, fileUrls: any} | n
   try {
     const supabase = getSupabaseClient();
     
+    console.log('🔍 Calling claim_next_job database function...');
     const { data, error } = await supabase.rpc('claim_next_job');
     
     if (error) {
-      console.error('Error claiming next job:', error);
+      console.error('❌ Error claiming next job:', error);
       return null;
     }
 
+    console.log('📊 claim_next_job response:', { data, dataLength: data?.length });
+
     if (!data || data.length === 0) {
+      console.log('📭 No jobs claimed - queue might be empty or job already claimed');
       return null; // No jobs available
     }
 
     const result = data[0];
+    console.log('✅ Job claimed successfully:', { 
+      jobId: result.job_id, 
+      hasFileUrls: !!result.file_urls_data 
+    });
+    
     return {
       jobId: result.job_id,
       fileUrls: result.file_urls_data

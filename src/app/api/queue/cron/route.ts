@@ -21,6 +21,12 @@ export const maxDuration = 60;
 export async function GET(request: NextRequest) {
   console.log('⏰ Queue cron job started');
   
+  // Verify this is actually a cron job call (Vercel adds this header)
+  const cronSecret = request.headers.get('authorization');
+  if (process.env.NODE_ENV === 'production' && !cronSecret?.includes('Bearer')) {
+    console.log('⚠️ Cron job called without proper authorization header');
+  }
+  
   try {
     const supabase = getSupabaseClient();
     

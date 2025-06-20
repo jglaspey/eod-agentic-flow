@@ -11,15 +11,24 @@ export const maxDuration = 60; // Maximum function duration
 
 export async function POST(request: NextRequest) {
   console.log('⚡ Queue process endpoint triggered');
+  console.log('🔍 Request headers:', {
+    host: request.headers.get('host'),
+    'x-queue-trigger': request.headers.get('x-queue-trigger'),
+    'user-agent': request.headers.get('user-agent')
+  });
   
   try {
     // Verify internal trigger (basic security)
     const triggerHeader = request.headers.get('x-queue-trigger');
     if (triggerHeader !== 'internal' && process.env.NODE_ENV === 'production') {
+      console.log('❌ Unauthorized queue trigger attempt');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    console.log('🔒 Authorization verified, proceeding with job processing');
+
     // Process ONE job (not a loop, to avoid timeouts)
+    console.log('📋 Attempting to claim next job...');
     const job = await claimNextJob();
     
     if (!job) {

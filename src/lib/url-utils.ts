@@ -19,32 +19,35 @@ import { NextRequest } from 'next/server';
  * @returns The full base URL (with protocol) for the current environment
  */
 export function getDeploymentUrl(request?: NextRequest): string {
-  // Server-side detection
+  // PRIORITY 1: Request headers (gives us the exact current deployment URL)
   if (request) {
-    // Try to get host from request headers
     const host = request.headers.get('host');
     const protocol = request.headers.get('x-forwarded-proto') || 'https';
     
     if (host) {
+      console.log(`🌐 URL detected from request headers: ${protocol}://${host}`);
       return `${protocol}://${host}`;
     }
   }
   
-  // Vercel automatic environment variables (server-side only)
+  // PRIORITY 2: Vercel environment variables (server-side only)
   if (typeof window === 'undefined') {
-    // Production URL (custom domain if available, vercel.app if not)
-    if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
-      return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
-    }
-    
-    // Current deployment URL (works for all environments)
+    // Current deployment URL (works for all environments, including branches)
     if (process.env.VERCEL_URL) {
+      console.log(`🌐 URL detected from VERCEL_URL: https://${process.env.VERCEL_URL}`);
       return `https://${process.env.VERCEL_URL}`;
     }
     
     // Branch-specific URL for preview deployments
     if (process.env.VERCEL_BRANCH_URL) {
+      console.log(`🌐 URL detected from VERCEL_BRANCH_URL: https://${process.env.VERCEL_BRANCH_URL}`);
       return `https://${process.env.VERCEL_BRANCH_URL}`;
+    }
+    
+    // Production URL (only as fallback, might not be current branch)
+    if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+      console.log(`🌐 URL detected from VERCEL_PROJECT_PRODUCTION_URL: https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`);
+      return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
     }
   }
   
