@@ -225,14 +225,24 @@ export async function verifyStorageAccess(): Promise<boolean> {
       
     if (uploadError) {
       console.error('❌ Storage upload test failed:', uploadError);
+      console.error('Error details:', uploadError);
       
       // Check if error indicates bucket doesn't exist
       if (uploadError.message?.includes('bucket') && uploadError.message?.includes('not found')) {
-        console.error('job-files bucket not found. Please run debug-storage-fix.sql in Supabase SQL Editor.');
+        console.error('❌ job-files bucket not found. Please create it manually in Supabase Dashboard > Storage.');
+        console.error('   1. Create bucket named "job-files"');
+        console.error('   2. Set it to Public (for testing) or Private with proper RLS policies');
+        console.error('   3. File size limit: 10MB');
         return false;
       }
       
-      console.error('Storage upload failed. Check permissions and RLS policies.');
+      // Check for permission/policy issues
+      if (uploadError.message?.includes('policy') || uploadError.message?.includes('permission')) {
+        console.error('❌ Storage permission error. Try making the job-files bucket PUBLIC in Supabase Dashboard for testing.');
+        return false;
+      }
+      
+      console.error('❌ Storage upload failed. Check bucket settings and permissions.');
       return false;
     }
     
