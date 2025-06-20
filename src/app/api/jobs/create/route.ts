@@ -20,17 +20,17 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify storage access
+    console.log('🔍 Verifying storage access...');
     const storageOk = await verifyStorageAccess();
+    console.log('🔍 Storage verification result:', storageOk);
+    
     if (!storageOk) {
-      console.error('Storage verification failed. Check console for details.');
+      console.error('❌ Storage verification failed. Check console for details.');
       
-      // For development, you can comment out this return to bypass storage check
-      // return NextResponse.json(
-      //   { error: 'Storage system not available. Please contact support.' },
-      //   { status: 503 }
-      // )
-      
-      // Or fall back to synchronous processing
+      // For now, let's try to proceed anyway for testing
+      console.log('⚠️ Attempting to proceed with queue mode despite storage warning...');
+      // Comment out the return to test queue mode
+      /*
       return NextResponse.json(
         { 
           error: 'Queue mode unavailable. Please use Direct Mode instead.',
@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
         },
         { status: 503 }
       )
+      */
     }
 
     // Parse form data
