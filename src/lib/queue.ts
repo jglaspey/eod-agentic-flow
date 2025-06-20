@@ -225,8 +225,8 @@ export async function startRunnerIfNeeded(): Promise<void> {
 export async function startRunner(): Promise<void> {
   console.log('🏃‍♂️ Queue runner started');
   
+  let jobCount = 0;
   try {
-    let jobCount = 0;
     while (true) {
       console.log(`🔄 Queue runner iteration ${jobCount + 1}`);
       
@@ -254,7 +254,7 @@ export async function startRunner(): Promise<void> {
     // Runner will stop, but can be restarted by next job enqueue
   }
   
-  console.log(`🏁 Queue runner stopped after processing ${jobCount || 0} jobs`);
+  console.log(`🏁 Queue runner stopped after processing ${jobCount} jobs`);
 }
 
 /**
