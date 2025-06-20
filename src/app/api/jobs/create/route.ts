@@ -105,6 +105,17 @@ export async function POST(request: NextRequest) {
     // Get current queue status for user feedback
     const queueStatus = await getQueueStatus(userId);
 
+    // Force start the runner to process the newly queued job
+    console.log('🚀 Job created, manually starting runner...');
+    const { startRunnerIfNeeded } = await import('@/lib/queue');
+    setImmediate(async () => {
+      try {
+        await startRunnerIfNeeded();
+      } catch (error) {
+        console.error('Error starting runner:', error);
+      }
+    });
+
     return NextResponse.json({
       jobId: result.jobId,
       status: 'queued',

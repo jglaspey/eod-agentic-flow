@@ -184,11 +184,35 @@ export async function startRunnerIfNeeded(): Promise<void> {
       return;
     }
 
+    console.log(`🔍 Found ${processingJobs?.length || 0} jobs currently processing`);
+
     // If no jobs are processing, start the runner
     if (!processingJobs || processingJobs.length === 0) {
-      console.log('No jobs currently processing. Starting queue runner.');
-      // Use setImmediate to avoid blocking the response
-      setImmediate(() => startRunner());
+      console.log('🚀 No jobs currently processing. Starting queue runner.');
+      
+      // Check if there are queued jobs
+      const { data: queuedJobs, error: queueError } = await supabase
+        .from('jobs')
+        .select('id')
+        .eq('status', 'queued')
+        .limit(1);
+        
+      if (queueError) {
+        console.error('Error checking queued jobs:', queueError);
+        return;
+      }
+      
+      console.log(`🔍 Found ${queuedJobs?.length || 0} jobs in queue`);
+      
+      if (queuedJobs && queuedJobs.length > 0) {
+        console.log('🎯 Starting queue runner for queued jobs...');
+        // Use setImmediate to avoid blocking the response
+        setImmediate(() => startRunner());
+      } else {
+        console.log('📭 No queued jobs to process');
+      }
+    } else {
+      console.log('⏳ Jobs already processing, runner not needed');
     }
   } catch (error) {
     console.error('Error in startRunnerIfNeeded:', error);
@@ -199,33 +223,38 @@ export async function startRunnerIfNeeded(): Promise<void> {
  * Main queue processing loop (iterative, not recursive)
  */
 export async function startRunner(): Promise<void> {
-  console.log('Queue runner started');
+  console.log('🏃‍♂️ Queue runner started');
   
   try {
+    let jobCount = 0;
     while (true) {
+      console.log(`🔄 Queue runner iteration ${jobCount + 1}`);
+      
       const job = await claimNextJob();
       if (!job) {
-        console.log('No more jobs in queue. Runner stopping.');
+        console.log('📭 No more jobs in queue. Runner stopping.');
         break;
       }
 
-      console.log(`Processing job ${job.jobId}`);
+      jobCount++;
+      console.log(`⚙️ Processing job ${job.jobId} (${jobCount})`);
+      console.log(`📁 File URLs:`, job.fileUrls);
       
       try {
         await processJob(job.jobId, job.fileUrls);
         await markJobCompleted(job.jobId);
-        console.log(`Job ${job.jobId} completed successfully`);
+        console.log(`✅ Job ${job.jobId} completed successfully`);
       } catch (error) {
-        console.error(`Job ${job.jobId} failed:`, error);
+        console.error(`❌ Job ${job.jobId} failed:`, error);
         await markJobFailed(job.jobId, error instanceof Error ? error.message : 'Processing failed');
       }
     }
   } catch (error) {
-    console.error('Fatal error in queue runner:', error);
+    console.error('💥 Fatal error in queue runner:', error);
     // Runner will stop, but can be restarted by next job enqueue
   }
   
-  console.log('Queue runner stopped');
+  console.log(`🏁 Queue runner stopped after processing ${jobCount || 0} jobs`);
 }
 
 /**
