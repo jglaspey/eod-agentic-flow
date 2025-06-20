@@ -7,8 +7,21 @@ interface UploadedFiles {
   roofReport: File | null
 }
 
+interface QueueStatus {
+  totalQueued: number
+  totalProcessing: number
+  userPosition?: number
+}
+
 interface UploadInterfaceProps {
-  onJobCreated: (jobData: { id: string; status: 'processing'; created_at: string }) => void
+  onJobCreated: (jobData: { 
+    id: string; 
+    status: 'processing' | 'queued'; 
+    created_at: string;
+    queuePosition?: number;
+    estimatedWaitTime?: string;
+    queueStatus?: QueueStatus;
+  }) => void
 }
 
 export default function UploadInterface({ onJobCreated }: UploadInterfaceProps) {
@@ -19,6 +32,9 @@ export default function UploadInterface({ onJobCreated }: UploadInterfaceProps) 
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  // Check if queue mode is available (requires proper storage setup)
+  const queueModeAvailable = process.env.NEXT_PUBLIC_ENABLE_QUEUE_MODE === 'true';
+  const [useQueueMode, setUseQueueMode] = useState(queueModeAvailable) // Default based on env
 
   const validateFile = (file: File): boolean => {
     if (file.type !== 'application/pdf') {
@@ -76,8 +92,10 @@ export default function UploadInterface({ onJobCreated }: UploadInterfaceProps) 
       const formData = new FormData()
       formData.append('estimate', files.estimate)
       formData.append('roofReport', files.roofReport)
+      formData.append('userId', 'user-' + Date.now()) // Simple user ID for demo
 
-      const response = await fetch('/api/process', {
+      const endpoint = useQueueMode ? '/api/jobs/create' : '/api/process'
+      const response = await fetch(endpoint, {
         method: 'POST',
         body: formData
       })
@@ -86,28 +104,78 @@ export default function UploadInterface({ onJobCreated }: UploadInterfaceProps) 
         if (response.status === 413) {
           throw new Error('Files too large. Please use smaller PDF files (under 4MB each)')
         }
+        if (response.status === 429) {
+          throw new Error('Too many jobs queued. Please wait for existing jobs to complete.')
+        }
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+        
+        // Handle storage unavailable error by falling back to direct mode
+        if (response.status === 503 && errorData.fallbackMode === 'direct') {
+          setUseQueueMode(false)
+          setError('Queue mode unavailable. Switching to Direct Mode.')
+          // Retry with direct mode
+          const directResponse = await fetch('/api/process', {
+            method: 'POST',
+            body: formData
+          })
+          
+          if (!directResponse.ok) {
+            const directError = await directResponse.json().catch(() => ({ error: 'Unknown error' }))
+            throw new Error(directError.error || 'Processing failed')
+          }
+          
+          const directResult = await directResponse.json()
+          onJobCreated({
+            id: directResult.jobId,
+            status: 'processing',
+            created_at: new Date().toISOString()
+          })
+          
+          setSuccessMessage(`Job ${directResult.jobId} created successfully! Processing has started.`)
+          setFiles({ estimate: null, roofReport: null })
+          setTimeout(() => setSuccessMessage(null), 7000)
+          
+          return // Exit early since we handled it
+        }
+        
         throw new Error(errorData.error || 'Processing failed')
       }
 
       const result = await response.json()
       
       // Call the callback to add the job to the dashboard
-      onJobCreated({
-        id: result.jobId,
-        status: 'processing',
-        created_at: new Date().toISOString()
-      })
+      if (useQueueMode) {
+        onJobCreated({
+          id: result.jobId,
+          status: result.status, // 'queued'
+          created_at: new Date().toISOString(),
+          queuePosition: result.queuePosition,
+          estimatedWaitTime: result.estimatedWaitTime,
+          queueStatus: result.queueStatus
+        })
+        
+        setSuccessMessage(
+          `Job ${result.jobId} queued successfully! ` +
+          `Position in queue: ${result.queuePosition || 'Unknown'}.${result.estimatedWaitTime ? ` Estimated wait: ${result.estimatedWaitTime}` : ''}`
+        )
+      } else {
+        onJobCreated({
+          id: result.jobId,
+          status: 'processing',
+          created_at: new Date().toISOString()
+        })
+        
+        setSuccessMessage(`Job ${result.jobId} created successfully! Processing has started and will appear in the list below.`)
+      }
 
-      // Clear the form and show success message
+      // Clear the form
       setFiles({ estimate: null, roofReport: null })
-      setSuccessMessage(`Job ${result.jobId} created successfully! Processing has started and will appear in the list below.`)
       
-      // Clear success message after 5 seconds
-      setTimeout(() => setSuccessMessage(null), 5000)
+      // Clear success message after 7 seconds
+      setTimeout(() => setSuccessMessage(null), 7000)
       
     } catch (err) {
-      setError('Processing failed. Please try again.')
+      setError(err instanceof Error ? err.message : 'Processing failed. Please try again.')
     } finally {
       setIsProcessing(false)
     }
@@ -122,6 +190,36 @@ export default function UploadInterface({ onJobCreated }: UploadInterfaceProps) 
         <p className="text-gray-600">
           Upload your insurance estimate and roof inspection report to begin analysis
         </p>
+        
+        {/* Queue Mode Toggle - only show if available */}
+        {queueModeAvailable && (
+          <div className="mt-4 inline-flex items-center space-x-3 bg-gray-50 rounded-lg p-2">
+            <label className="inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                className="sr-only"
+                checked={useQueueMode}
+                onChange={(e) => setUseQueueMode(e.target.checked)}
+              />
+              <div className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                useQueueMode ? 'bg-blue-600' : 'bg-gray-300'
+              }`}>
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  useQueueMode ? 'translate-x-6' : 'translate-x-1'
+                }`} />
+              </div>
+              <span className="ml-2 text-sm text-gray-700">
+                {useQueueMode ? 'Queue Mode (Fast)' : 'Direct Mode (Wait)'}
+              </span>
+            </label>
+            <div className="text-xs text-gray-500">
+              {useQueueMode 
+                ? '~2s response, background processing' 
+                : '~60s wait, immediate results'
+              }
+            </div>
+          </div>
+        )}
       </div>
 
       {error && (

@@ -161,7 +161,43 @@
 - `package.json` - Testing dependencies & scripts
 - Database AI config - JSON format prompts
 
-### 🚀 V2 FUTURE ITEMS (NOT IN V1 SCOPE)
+### 🚀 V2 QUEUED JOB FLOW SYSTEM (CURRENT FOCUS)
+**Started**: June 19, 2025 | **Status**: 📋 **PLANNING COMPLETE** | **Priority**: 🔥 **HIGH**
+
+#### Problem & Solution
+**Issue**: Users wait ~60s between job submissions, limiting throughput and creating UX friction  
+**Solution**: Async queue system with immediate job creation, background processing, and safety mechanisms
+
+**Architecture**: `Job Creation (1s) → Queue Status → Background Processing → Auto-chaining`
+
+#### Technical Analysis ✅ **COMPLETED**
+- ✅ **Serverless-Compatible**: Uses existing Vercel + Supabase stack
+- ✅ **Race Condition Safe**: SQL `FOR UPDATE SKIP LOCKED` prevents conflicts
+- ✅ **Resource Managed**: Only one heavy job processes at a time
+- ⚠️ **Safety Required**: Need timeout detection, file storage, stuck job recovery
+
+#### Implementation Phases
+1. **Database & Storage** (Day 1) - Add queue status, file upload to Supabase Storage
+2. **Queue System** (Day 1-2) - Core queue with iterative processing, SQL job claiming
+3. **Safety Systems** (Day 2) - Stuck job detection, retry logic, maintenance jobs
+4. **Frontend** (Day 2-3) - Queue status UI, position display, rapid submission handling
+5. **Monitoring** (Day 3) - Rate limiting, metrics, admin tools
+
+#### Key Safety Features
+- **Timeout Detection**: 65min limit with automatic stuck job cleanup
+- **File Persistence**: Upload to Supabase Storage before queue processing
+- **Rate Limiting**: 10 jobs/hour per user to prevent abuse
+- **Iterative Processing**: No recursion to avoid stack overflow
+- **Error Recovery**: Failed jobs don't block queue progression
+
+#### Success Criteria
+- 🎯 **<2s Response**: Immediate job creation confirmation
+- 🎯 **Multi-Job**: Users queue 3-5 jobs rapidly
+- 🎯 **Background**: Automatic sequential processing
+- 🎯 **Fault Tolerant**: Graceful stuck job recovery
+- 🎯 **Quality Maintained**: Same processing accuracy as V1
+
+### 🔮 V3 FUTURE ITEMS (POST-QUEUE)
 - User feedback loop interface
 - Supabase code management migration
 - Advanced iterative refinement beyond multi-pass

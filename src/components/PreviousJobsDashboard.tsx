@@ -19,13 +19,24 @@ interface JobDisplayData {
   insurance_carrier: string | null
   status: string
   created_at: string
+  queue_position?: number | null
+  processing_started_at?: string | null
+}
+
+interface QueueStatus {
+  totalQueued: number
+  totalProcessing: number
+  userPosition?: number
 }
 
 interface PreviousJobsDashboardProps {
   newJob?: {
     id: string
-    status: 'processing'
+    status: 'processing' | 'queued'
     created_at: string
+    queuePosition?: number
+    estimatedWaitTime?: string
+    queueStatus?: QueueStatus
   } | null
 }
 
@@ -44,6 +55,8 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
           id,
           status,
           created_at,
+          queue_position,
+          processing_started_at,
           job_data (
             property_address,
             insurance_carrier
@@ -70,6 +83,8 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
         insurance_carrier: job.job_data && job.job_data.length > 0 ? job.job_data[0].insurance_carrier : null,
         status: job.status,
         created_at: new Date(job.created_at).toLocaleString(),
+        queue_position: job.queue_position,
+        processing_started_at: job.processing_started_at,
       }))
 
       setJobs(displayData)
@@ -82,21 +97,23 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
     }
   }, [])
 
-  // Poll for status updates on processing jobs
+  // Poll for status updates on processing and queued jobs
   useEffect(() => {
-    const pollProcessingJobs = async () => {
-      const processingJobs = jobs.filter(job => job.status === 'processing')
+    const pollActiveJobs = async () => {
+      const activeJobs = jobs.filter(job => job.status === 'processing' || job.status === 'queued')
       
-      if (processingJobs.length === 0) return
+      if (activeJobs.length === 0) return
 
       try {
         const supabase = getSupabaseClient()
         
-        for (const job of processingJobs) {
+        for (const job of activeJobs) {
           const { data: statusData, error: statusError } = await supabase
             .from('jobs')
             .select(`
               status,
+              queue_position,
+              processing_started_at,
               job_data (
                 property_address,
                 insurance_carrier
@@ -105,24 +122,31 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
             .eq('id', job.id)
             .single()
 
-          if (!statusError && statusData && statusData.status !== 'processing') {
-            // Job completed, update the job in our list
-            setJobs(prevJobs => 
-              prevJobs.map(prevJob => 
-                prevJob.id === job.id 
-                  ? {
-                      ...prevJob,
-                      status: statusData.status,
-                      property_address: statusData.job_data && statusData.job_data.length > 0 
-                        ? statusData.job_data[0].property_address 
-                        : prevJob.property_address,
-                      insurance_carrier: statusData.job_data && statusData.job_data.length > 0 
-                        ? statusData.job_data[0].insurance_carrier 
-                        : prevJob.insurance_carrier,
-                    }
-                  : prevJob
+          if (!statusError && statusData) {
+            const hasStatusChanged = statusData.status !== job.status ||
+                                   statusData.queue_position !== job.queue_position
+
+            if (hasStatusChanged) {
+              // Job status or queue position changed, update the job in our list
+              setJobs(prevJobs => 
+                prevJobs.map(prevJob => 
+                  prevJob.id === job.id 
+                    ? {
+                        ...prevJob,
+                        status: statusData.status,
+                        queue_position: statusData.queue_position,
+                        processing_started_at: statusData.processing_started_at,
+                        property_address: statusData.job_data && statusData.job_data.length > 0 
+                          ? statusData.job_data[0].property_address 
+                          : prevJob.property_address,
+                        insurance_carrier: statusData.job_data && statusData.job_data.length > 0 
+                          ? statusData.job_data[0].insurance_carrier 
+                          : prevJob.insurance_carrier,
+                      }
+                    : prevJob
+                )
               )
-            )
+            }
           }
         }
       } catch (err) {
@@ -130,7 +154,7 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
       }
     }
 
-    const interval = setInterval(pollProcessingJobs, 3000) // Poll every 3 seconds
+    const interval = setInterval(pollActiveJobs, 3000) // Poll every 3 seconds
     return () => clearInterval(interval)
   }, [jobs])
 
@@ -143,6 +167,8 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
         insurance_carrier: null, // Will be filled when processing completes
         status: newJob.status,
         created_at: new Date(newJob.created_at).toLocaleString(),
+        queue_position: newJob.queuePosition || null,
+        processing_started_at: null,
       }
 
       setJobs(prevJobs => {
@@ -169,9 +195,18 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
         return 'destructive' // Reddish
       case 'processing':
         return 'secondary' // Bluish/Grayish
+      case 'queued':
+        return 'outline' // Neutral for queued
       default:
         return 'outline'
     }
+  }
+
+  const getStatusDisplay = (job: JobDisplayData): string => {
+    if (job.status === 'queued' && job.queue_position) {
+      return `Queued (#${job.queue_position})`
+    }
+    return job.status.replace('_', ' ')
   }
 
   if (loading) {
@@ -204,16 +239,22 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
               <TableRow key={job.id} className="hover:bg-muted/50">
                 <TableCell className="font-medium">
                   <Link href={`/results/${job.id}`} className="hover:underline text-blue-600 flex items-center">
-                    {job.status === 'processing' && (
+                    {(job.status === 'processing' || job.status === 'queued') && (
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
                     )}
-                    {job.property_address || (job.status === 'processing' ? 'Processing...' : 'Not Available')}
+                    {job.property_address || 
+                     (job.status === 'processing' ? 'Processing...' : 
+                      job.status === 'queued' ? 'Queued...' : 'Not Available')}
                   </Link>
                 </TableCell>
-                <TableCell>{job.insurance_carrier || (job.status === 'processing' ? 'Processing...' : 'Not Available')}</TableCell>
+                <TableCell>
+                  {job.insurance_carrier || 
+                   (job.status === 'processing' ? 'Processing...' : 
+                    job.status === 'queued' ? 'Queued...' : 'Not Available')}
+                </TableCell>
                 <TableCell>
                   <Badge variant={getStatusVariant(job.status)} className="capitalize">
-                    {job.status.replace('_', ' ')}
+                    {getStatusDisplay(job)}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right text-sm text-gray-500">{job.created_at}</TableCell>

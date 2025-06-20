@@ -1,0 +1,252 @@
+/**
+ * Supabase Storage utilities for V2 Queue System
+ * Handles uploading job files to persistent storage for async processing
+ */
+
+import { getSupabaseClient } from './supabase';
+
+export interface FileUploadResult {
+  success: boolean;
+  fileUrl?: string;
+  error?: string;
+}
+
+export interface JobFilesUploadResult {
+  success: boolean;
+  fileUrls?: {
+    estimate?: string;
+    roofReport?: string;
+  };
+  error?: string;
+}
+
+/**
+ * Upload a single file to Supabase Storage
+ */
+export async function uploadJobFile(
+  jobId: string,
+  file: File,
+  fileType: 'estimate' | 'roof-report'
+): Promise<FileUploadResult> {
+  try {
+    const supabase = getSupabaseClient();
+    const fileExtension = file.name.split('.').pop() || 'pdf';
+    const fileName = `${jobId}/${fileType}.${fileExtension}`;
+    
+    // Convert File to ArrayBuffer for upload
+    const fileBuffer = await file.arrayBuffer();
+    
+    // Upload to Supabase Storage
+    const { data, error } = await supabase.storage
+      .from('job-files')
+      .upload(fileName, fileBuffer, {
+        contentType: file.type,
+        upsert: true, // Overwrite if exists (for retries)
+        cacheControl: '3600', // Cache for 1 hour
+      });
+
+    if (error) {
+      console.error(`Failed to upload ${fileType} file for job ${jobId}:`, error);
+      return {
+        success: false,
+        error: `Upload failed: ${error.message}`
+      };
+    }
+
+    // Get the public URL for the uploaded file
+    const { data: urlData } = supabase.storage
+      .from('job-files')
+      .getPublicUrl(fileName);
+
+    console.log(`File uploaded successfully: ${fileName}`);
+    return {
+      success: true,
+      fileUrl: urlData.publicUrl
+    };
+
+  } catch (error) {
+    console.error(`Unexpected error uploading ${fileType} file:`, error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown upload error'
+    };
+  }
+}
+
+/**
+ * Upload both estimate and roof report files for a job
+ */
+export async function uploadJobFiles(
+  jobId: string,
+  estimateFile: File,
+  roofReportFile?: File | null
+): Promise<JobFilesUploadResult> {
+  try {
+    const results: {
+      estimate?: string;
+      roofReport?: string;
+    } = {};
+
+    // Upload estimate file (required)
+    const estimateResult = await uploadJobFile(jobId, estimateFile, 'estimate');
+    if (!estimateResult.success) {
+      return {
+        success: false,
+        error: `Failed to upload estimate: ${estimateResult.error}`
+      };
+    }
+    results.estimate = estimateResult.fileUrl;
+
+    // Upload roof report file (optional)
+    if (roofReportFile) {
+      const roofReportResult = await uploadJobFile(jobId, roofReportFile, 'roof-report');
+      if (!roofReportResult.success) {
+        return {
+          success: false,
+          error: `Failed to upload roof report: ${roofReportResult.error}`
+        };
+      }
+      results.roofReport = roofReportResult.fileUrl;
+    }
+
+    return {
+      success: true,
+      fileUrls: results
+    };
+
+  } catch (error) {
+    console.error('Unexpected error uploading job files:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown upload error'
+    };
+  }
+}
+
+/**
+ * Download a file from Supabase Storage and convert to File object
+ */
+export async function downloadJobFile(
+  fileUrl: string,
+  fileName: string
+): Promise<File | null> {
+  try {
+    const supabase = getSupabaseClient();
+    
+    // Extract the file path from the public URL
+    const urlParts = fileUrl.split('/job-files/');
+    if (urlParts.length !== 2) {
+      console.error('Invalid file URL format:', fileUrl);
+      return null;
+    }
+    
+    const filePath = urlParts[1];
+    
+    // Download from Supabase Storage
+    const { data, error } = await supabase.storage
+      .from('job-files')
+      .download(filePath);
+
+    if (error) {
+      console.error('Failed to download file:', error);
+      return null;
+    }
+
+    // Convert Blob to File
+    return new File([data], fileName, {
+      type: 'application/pdf'
+    });
+
+  } catch (error) {
+    console.error('Unexpected error downloading file:', error);
+    return null;
+  }
+}
+
+/**
+ * Clean up job files from storage (call after successful processing)
+ */
+export async function cleanupJobFiles(jobId: string): Promise<void> {
+  try {
+    const supabase = getSupabaseClient();
+    
+    // List all files for this job
+    const { data: files, error: listError } = await supabase.storage
+      .from('job-files')
+      .list(jobId);
+
+    if (listError) {
+      console.error(`Failed to list files for cleanup of job ${jobId}:`, listError);
+      return;
+    }
+
+    if (!files || files.length === 0) {
+      console.log(`No files to cleanup for job ${jobId}`);
+      return;
+    }
+
+    // Delete all files for this job
+    const filePaths = files.map(file => `${jobId}/${file.name}`);
+    const { error: deleteError } = await supabase.storage
+      .from('job-files')
+      .remove(filePaths);
+
+    if (deleteError) {
+      console.error(`Failed to cleanup files for job ${jobId}:`, deleteError);
+    } else {
+      console.log(`Successfully cleaned up ${filePaths.length} files for job ${jobId}`);
+    }
+
+  } catch (error) {
+    console.error(`Unexpected error cleaning up files for job ${jobId}:`, error);
+  }
+}
+
+/**
+ * Check if the storage bucket exists and is accessible
+ */
+export async function verifyStorageAccess(): Promise<boolean> {
+  try {
+    const supabase = getSupabaseClient();
+    
+    // Try to list buckets to verify access
+    const { data, error } = await supabase.storage.listBuckets();
+    
+    if (error) {
+      console.error('Storage access verification failed:', error);
+      console.error('Make sure you have the correct Supabase URL and anon key in your environment variables');
+      return false;
+    }
+
+    console.log('Available storage buckets:', data?.map(b => b.id));
+
+    // Check if job-files bucket exists
+    const jobFilesBucket = data?.find(bucket => bucket.id === 'job-files');
+    if (!jobFilesBucket) {
+      console.error('job-files bucket not found. Please create it in Supabase dashboard.');
+      
+      // Try to create the bucket
+      console.log('Attempting to create job-files bucket...');
+      const { error: createError } = await supabase.storage.createBucket('job-files', {
+        public: false,
+        allowedMimeTypes: ['application/pdf'],
+        fileSizeLimit: 5242880 // 5MB
+      });
+      
+      if (createError) {
+        console.error('Failed to create bucket:', createError);
+        return false;
+      }
+      
+      console.log('Successfully created job-files bucket');
+      return true;
+    }
+
+    console.log('job-files bucket exists and is accessible');
+    return true;
+
+  } catch (error) {
+    console.error('Unexpected error verifying storage access:', error);
+    return false;
+  }
+}

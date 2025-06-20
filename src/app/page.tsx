@@ -4,14 +4,30 @@ import { useState } from 'react'
 import UploadInterface from '@/components/UploadInterface'
 import { PreviousJobsDashboard } from '@/components/PreviousJobsDashboard'
 
+interface QueueStatus {
+  totalQueued: number
+  totalProcessing: number
+  userPosition?: number
+}
+
 export default function Home() {
   const [newJob, setNewJob] = useState<{
     id: string
-    status: 'processing'
+    status: 'processing' | 'queued'
     created_at: string
+    queuePosition?: number
+    estimatedWaitTime?: string
+    queueStatus?: QueueStatus
   } | null>(null)
 
-  const handleJobCreated = (jobData: { id: string; status: 'processing'; created_at: string }) => {
+  const handleJobCreated = (jobData: { 
+    id: string; 
+    status: 'processing' | 'queued'; 
+    created_at: string;
+    queuePosition?: number;
+    estimatedWaitTime?: string;
+    queueStatus?: QueueStatus;
+  }) => {
     setNewJob(jobData)
   }
 

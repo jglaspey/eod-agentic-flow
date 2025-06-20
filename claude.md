@@ -5,7 +5,7 @@ This is a Next.js application that processes roofing estimates and inspection re
 
 ## Key System Components
 
-### Multi-Pass Supplement Generation ✅ WORKING
+### Multi-Pass Supplement Generation ✅ PRODUCTION READY
 The system uses a 5-pass approach:
 1. **AI Suggestions** - Initial AI call for bulk supplement ideas
 2. **Business Rules** - 4 decision trees validate/add supplements
@@ -15,6 +15,16 @@ The system uses a 5-pass approach:
 
 **Status**: Fully implemented and working correctly (6-7 supplements generated)
 
+### V2 Queue System 🚧 IN DEVELOPMENT
+Async job processing for improved user experience:
+1. **Immediate Job Creation** - <2s response with queue status
+2. **File Storage** - Upload to Supabase Storage for async processing
+3. **Background Processing** - Sequential job execution without UI blocking
+4. **Safety Systems** - Stuck job detection, rate limiting, error recovery
+5. **Queue Management** - SQL-based job claiming with race condition protection
+
+**Target**: Users can submit 3-5 jobs rapidly without 60s waits
+
 ### Business Rules Engine ✅ IMPLEMENTED
 Four client decision trees in `src/agents/rules/BusinessRules.ts`:
 - **HipRidgeCapRule**: Purpose-built vs cut shingle validation
@@ -22,25 +32,28 @@ Four client decision trees in `src/agents/rules/BusinessRules.ts`:
 - **DripEdgeGutterRule**: Rake vs eave coverage validation
 - **IceWaterBarrierRule**: Code-required quantity calculations
 
-### Source Attribution System ✅ BACKEND WORKING
+### Source Attribution System ✅ PRODUCTION READY
 - `source_system` field tracks: `business_rule` vs `ai_suggestion`
 - Database correctly saves attribution data
-- Backend logs confirm proper source tracking
+- Frontend visual indicators working correctly
+- Full end-to-end source tracking operational
 
-## Current Issue: Visual Source Attribution 🔍 DEBUGGING
+## Current Focus: V2 Queue System Implementation 🚀 IN DEVELOPMENT
 
 ### Problem
-Frontend shows "Unknown Source" instead of colored dots for Business Rules vs AI Suggestions.
+Users must wait ~60 seconds between job submissions, limiting throughput and creating UX friction.
 
-### Root Cause
-- ✅ Backend working correctly (database has proper `source_system` values)
-- 🔍 Frontend `getSourceIcon()` function in `ResultsDisplay.tsx` falling back to default
-- 🔍 Possible React data fetching or rendering issue
+### Solution: Async Job Queue System
+- **Immediate Response**: Job creation returns in <2s with queue status
+- **Background Processing**: Jobs process sequentially without blocking UI
+- **Safety Systems**: Stuck job detection, rate limiting, error recovery
+- **File Storage**: Upload to Supabase Storage for async processing
 
-### Debug Status
-- ✅ Enhanced logging added to `ResultsDisplay.tsx` (lines 18-32, 89-98)
-- 🔍 Next: Check browser console (F12) for debug output with 🔍 emoji markers
-- 🔍 Look for data fetching issues or component rendering problems
+### Implementation Status
+- ✅ **Planning Complete**: Technical analysis and architecture design finished
+- 🚧 **Ready to Start**: Database schema + file storage foundation
+- 📋 **Timeline**: 3-4 days for full implementation
+- 🎯 **Goal**: Users can queue 3-5 jobs rapidly without waiting
 
 ## Key Files to Know
 
@@ -61,10 +74,16 @@ Frontend shows "Unknown Source" instead of colored dots for Business Rules vs AI
 
 ### Database Schema
 Key tables:
-- `jobs` - Job metadata and status
+- `jobs` - Job metadata and status (adding queue support)
 - `job_data` - Extracted property and roof data
 - `supplement_items` - Generated supplements with source attribution
 - `job_logs` - Multi-pass system logs (UUID issue fixed)
+
+**V2 Queue Additions**:
+- `jobs.status` - Adding `queued` enum value
+- `jobs.processing_started_at` - Stuck job detection
+- `jobs.queue_position` - User queue visibility
+- File storage moving to Supabase Storage for async processing
 
 ## Development Guidelines
 
@@ -91,11 +110,12 @@ npm run dev          # Start development server
 npm run build        # Build for production
 ```
 
-## Next Steps
-1. 🔍 Debug visual source attribution UI (check browser console)
-2. 🔧 Fix `getSourceIcon()` component if data fetching issue found
-3. 🧹 Remove debug logging once visual indicators work
-4. 🚀 Plan V2 features (user feedback loop)
+## Next Steps (V2 Queue System)
+1. 🗄️ Add `queued` status and tracking fields to database schema
+2. 📁 Implement file upload to Supabase Storage for async processing
+3. ⚙️ Build core queue system with `enqueueJob()` and `startRunner()`
+4. 🛡️ Add safety systems: stuck job detection, rate limiting, cleanup
+5. 🎨 Update frontend to handle queue status and rapid submissions
 
 ## Documentation
 - `DEVELOPMENT_NOTES.md` - Detailed session logs and achievements

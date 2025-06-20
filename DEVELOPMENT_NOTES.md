@@ -390,6 +390,167 @@ Multi-pass system is working perfectly and generating supplements with proper so
 
 ---
 
+## 🚀 V2 IMPLEMENTATION: Queued Job Flow System
+**Date Started**: June 19, 2025
+**Priority**: 🔥 **HIGH PRIORITY** - Major UX enhancement for production system
+
+### Problem Statement
+**Primary Issue**: Users must wait ~60 seconds between job submissions, creating friction and limiting throughput
+**Secondary Issue**: Current processing is synchronous - if one job times out, the entire workflow hangs
+
+### Root Cause Analysis
+1. **Synchronous Processing**: `/api/process` blocks for full 60s processing time
+2. **UI Friction**: Upload button disabled during entire processing cycle
+3. **Single Job Limit**: No queuing mechanism for multiple rapid submissions
+4. **Timeout Risk**: Vercel 60s function limit creates potential for stuck jobs
+5. **File Storage**: Current design processes files directly from request (won't work async)
+
+### V2 Solution Architecture: Async Queue System
+```
+Immediate Response: Job Creation (1s) → Queue Status → Background Processing
+File Storage: Upload to Supabase Storage → Process from URLs → Cleanup
+Queue Management: SQL-based job claiming → Iterative processing → Auto-chaining
+Safety Systems: Stuck job detection → Rate limiting → Error recovery
+```
+
+### Technical Analysis Complete ✅
+**Strengths Identified**:
+- ✅ Uses existing Vercel + Supabase infrastructure
+- ✅ SQL `FOR UPDATE SKIP LOCKED` prevents race conditions
+- ✅ Immediate user feedback with ~1s response times
+- ✅ Self-sustaining queue processing
+- ✅ Maintains current processing pipeline unchanged
+
+**Critical Issues to Address**:
+- 🚨 **Serverless Timeout Risk**: Need heartbeat + timeout detection
+- 🚨 **File Storage Strategy**: Move to Supabase Storage for async processing
+- ⚠️ **Stuck Job Recovery**: Add `processing_started_at` + cleanup mechanism
+- ⚠️ **Recursive Call Risk**: Use iterative loop instead of recursion
+
+### Implementation Plan Overview
+
+#### **Phase 1: Database & Storage Foundation** (Day 1)
+- [ ] Add `queued` status to job_status enum
+- [ ] Add `processing_started_at` and `queue_position` columns  
+- [ ] Create queue management indexes
+- [ ] Implement file upload to Supabase Storage
+
+#### **Phase 2: Enhanced Queue System** (Day 1-2)
+- [ ] Create `src/lib/queue.ts` with safety features
+- [ ] Implement `enqueueJob()` with file upload first
+- [ ] Build iterative `startRunner()` (no recursion)
+- [ ] Add SQL `claim_next_job()` function
+
+#### **Phase 3: Stuck Job Detection** (Day 2)
+- [ ] Create `cleanupStuckJobs()` function
+- [ ] Add retry logic with exponential backoff
+- [ ] Implement maintenance job scheduler
+- [ ] Build restart mechanisms
+
+#### **Phase 4: Frontend Enhancements** (Day 2-3)
+- [ ] Handle `queued` status in UI components
+- [ ] Add queue position display
+- [ ] Update loading states and progress indicators
+- [ ] Real-time queue status updates via SSE
+
+#### **Phase 5: Safety & Monitoring** (Day 3)
+- [ ] Implement rate limiting (10 jobs/hour per user)
+- [ ] Add queue metrics and monitoring
+- [ ] Create admin interface for manual job management
+- [ ] Performance optimization and testing
+
+### Enhanced Architecture Details
+
+#### **File Storage Strategy**
+```typescript
+// Upload files to Supabase Storage first (persistent)
+const fileUrls = await uploadJobFiles(jobId, files);
+
+// Create job record with file references
+await supabase.from('jobs').insert({
+  id: jobId,
+  status: 'queued',
+  file_urls: fileUrls,
+  created_at: new Date().toISOString()
+});
+```
+
+#### **Safety Systems**
+```typescript
+// Stuck job detection
+const TIMEOUT_MINUTES = 65; // Slightly longer than function timeout
+const stuckJobs = await supabase
+  .from('jobs')
+  .select('id')
+  .eq('status', 'processing')
+  .lt('processing_started_at', timeoutThreshold);
+
+// Rate limiting
+const userJobCount = await supabase
+  .from('jobs')
+  .select('id', { count: 'exact' })
+  .eq('user_id', userId)
+  .in('status', ['queued', 'processing']);
+
+if (userJobCount.count >= 10) {
+  throw new Error('Too many jobs queued. Please wait.');
+}
+```
+
+#### **Queue Processing Loop**
+```typescript
+// Safer iterative runner (no recursion)
+export async function startRunner() {
+  while (true) {
+    const job = await claimNextJob();
+    if (!job) break;
+    
+    try {
+      await processJob(job);
+      await markJobCompleted(job.id);
+    } catch (error) {
+      await markJobFailed(job.id, error);
+    }
+  }
+}
+```
+
+### Success Criteria for V2
+- ✅ **Immediate Response**: Users get job confirmation in <2s
+- ✅ **Multiple Jobs**: Users can queue 3-5 jobs rapidly without waiting
+- ✅ **Background Processing**: Jobs process automatically in sequence
+- ✅ **Fault Tolerance**: Stuck jobs recover gracefully without manual intervention
+- ✅ **Rate Protection**: System prevents spam while allowing legitimate usage
+- ✅ **Maintained Quality**: Processing accuracy and confidence scores unchanged
+
+### Estimated Timeline: 3-4 Days
+**Day 1**: Database schema + file storage + basic queue  
+**Day 2**: Safety systems + stuck job detection + frontend updates  
+**Day 3**: Rate limiting + monitoring + admin tools  
+**Day 4**: Testing + optimization + documentation
+
+### Files to Create/Modify
+**New Files**:
+- `src/lib/queue.ts` - Core queue management system
+- `src/lib/storage.ts` - Supabase Storage integration
+- `src/app/api/createJob/route.ts` - New lightweight job creation endpoint
+- SQL migration files for schema updates
+
+**Modified Files**:
+- Database schema - Add queue status and tracking fields
+- `src/components/UploadInterface.tsx` - Handle rapid submissions
+- `src/components/Dashboard.tsx` - Display queue status
+- `src/app/results/[id]/page.tsx` - Handle queued state
+- `src/components/ResultsDisplay.tsx` - Queue status indicators
+
+### Risk Mitigation
+1. **Gradual Rollout**: Deploy to staging first, test with 10+ queued jobs
+2. **Fallback Plan**: Keep original `/api/process` endpoint as backup
+3. **Monitoring**: Add comprehensive logging and alerts for queue health
+4. **Performance Testing**: Verify system handles expected load patterns
+
+---
+
 ## 🎯 Previous Session Priorities (Pre-V1)
 
 ---
