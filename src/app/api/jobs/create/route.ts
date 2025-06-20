@@ -105,29 +105,15 @@ export async function POST(request: NextRequest) {
     // Get current queue status for user feedback
     const queueStatus = await getQueueStatus(userId);
 
-    // TRIGGER IMMEDIATE PROCESSING: Start processing via dedicated endpoint
-    console.log('🚀 Job created, triggering immediate processing...');
+    // FIRE-AND-FORGET PROCESSING TRIGGER (Layer 1 Pattern)
+    console.log('🚀 Job created, triggering processing...');
     
-    // Use fetch with a very short timeout to trigger processing without blocking response
-    const processingUrl = new URL('/api/queue/process-single', request.url).toString();
-    console.log(`🔄 Triggering processing at: ${processingUrl}`);
-    
-    // Fire-and-forget request that doesn't block the response
-    fetch(processingUrl, {
+    // Simple fire-and-forget fetch - no await, no error handling, no promises
+    fetch('/api/jobs/process', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-processing-trigger': 'job-creation'
-      },
-      body: JSON.stringify({ trigger: 'immediate' })
-    }).then(response => {
-      console.log(`🎯 Processing trigger response: ${response.status}`);
-      return response.text();
-    }).then(body => {
-      console.log(`📄 Processing trigger body: ${body.substring(0, 200)}`);
-    }).catch(err => {
-      console.log(`⚠️ Processing trigger failed (expected): ${err.message}`);
-    });
+      keepalive: true, // Critical for serverless reliability
+      headers: { 'Content-Type': 'application/json' }
+    }); // Pure fire-and-forget - no .then() or .catch()
 
     return NextResponse.json({
       jobId: result.jobId,

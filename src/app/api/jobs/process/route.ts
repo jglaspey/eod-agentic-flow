@@ -1,32 +1,36 @@
 /**
- * Single Job Processor - Immediate Processing Endpoint
+ * Job Processing Endpoint (Layer 1 Pattern)
  * 
- * This endpoint processes a single job immediately.
- * Used as an alternative to cron jobs for reliable processing.
+ * Simple, reliable job processor that:
+ * 1. Atomically claims next available job
+ * 2. Processes within 60s timeout constraint
+ * 3. Updates job status (completed/failed)
+ * 
+ * No complex error recovery, no cron dependencies, no HTTP chaining.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { claimNextJob, processJob, markJobCompleted, markJobFailed } from '@/lib/queue';
 
-export const maxDuration = 300; // 5 minutes for processing
+export const maxDuration = 60; // Accept the 60s constraint
 
 export async function POST(request: NextRequest) {
-  console.log('🚀 Single job processor started');
+  console.log('🔄 Job processor started');
   
   try {
-    // Claim and process exactly one job
+    // 1. Atomically claim next job (uses FOR UPDATE SKIP LOCKED)
     const job = await claimNextJob();
     if (!job) {
       console.log('📭 No jobs available to process');
       return NextResponse.json({
         success: true,
-        message: 'No jobs in queue to process'
+        message: 'No jobs in queue'
       });
     }
 
-    console.log(`⚙️ Processing job ${job.jobId}...`);
-    console.log(`📁 File URLs:`, job.fileUrls);
+    console.log(`⚙️ Processing job ${job.jobId}`);
     
+    // 2. Process job within 60s constraint
     try {
       await processJob(job.jobId, job.fileUrls);
       await markJobCompleted(job.jobId);
@@ -34,7 +38,7 @@ export async function POST(request: NextRequest) {
       
       return NextResponse.json({
         success: true,
-        message: `Job ${job.jobId} completed successfully`,
+        message: `Job ${job.jobId} completed`,
         jobId: job.jobId
       });
       
@@ -44,13 +48,14 @@ export async function POST(request: NextRequest) {
       
       return NextResponse.json({
         success: false,
+        message: `Job ${job.jobId} failed`,
         error: error instanceof Error ? error.message : 'Processing failed',
         jobId: job.jobId
       }, { status: 500 });
     }
     
   } catch (error) {
-    console.error('💥 Single job processor error:', error);
+    console.error('💥 Job processor error:', error);
     return NextResponse.json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown processor error'

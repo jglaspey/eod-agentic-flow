@@ -7,7 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getSupabaseClient } from './supabase';
 import { uploadJobFiles, downloadJobFile, cleanupJobFiles } from './storage';
 import { logStreamer } from './log-streamer';
-import { triggerInternalApi } from './url-utils';
+// Removed triggerInternalApi import - using simplified approach
 
 // For local development without storage, set this to true
 const USE_LOCAL_STORAGE_BYPASS = process.env.NODE_ENV === 'development' && !process.env.NEXT_PUBLIC_SUPABASE_URL?.includes('supabase.co');
@@ -165,100 +165,9 @@ export async function updateQueuePositions(): Promise<void> {
   }
 }
 
-/**
- * Start the queue runner if no jobs are currently processing
- */
-export async function startRunnerIfNeeded(): Promise<void> {
-  try {
-    const supabase = getSupabaseClient();
-    
-    // Check if any jobs are currently processing (only recent ones, not ancient stuck jobs)
-    const { data: processingJobs, error } = await supabase
-      .from('jobs')
-      .select('id, created_at')
-      .eq('status', 'processing')
-      .gte('created_at', new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()) // Only jobs from last 2 hours
-      .limit(1);
+// Removed startRunnerIfNeeded() - using simplified fire-and-forget approach
 
-    if (error) {
-      console.error('Error checking processing jobs:', error);
-      return;
-    }
-
-    console.log(`🔍 Found ${processingJobs?.length || 0} recent jobs currently processing`);
-
-    // If no recent jobs are processing, start the runner
-    if (!processingJobs || processingJobs.length === 0) {
-      console.log('🚀 No jobs currently processing. Starting queue runner.');
-      
-      // Check if there are queued jobs
-      const { data: queuedJobs, error: queueError } = await supabase
-        .from('jobs')
-        .select('id')
-        .eq('status', 'queued')
-        .limit(1);
-        
-      if (queueError) {
-        console.error('Error checking queued jobs:', queueError);
-        return;
-      }
-      
-      console.log(`🔍 Found ${queuedJobs?.length || 0} jobs in queue`);
-      
-      if (queuedJobs && queuedJobs.length > 0) {
-        console.log('🎯 Starting queue runner for queued jobs...');
-        console.log('🔄 Triggering queue runner via dynamic URL detection...');
-        
-        // Use dynamic URL detection - no hardcoded URLs needed!
-        await triggerInternalApi('/api/queue/process');
-      } else {
-        console.log('📭 No queued jobs to process');
-      }
-    } else {
-      console.log('⏳ Jobs already processing, runner not needed');
-    }
-  } catch (error) {
-    console.error('Error in startRunnerIfNeeded:', error);
-  }
-}
-
-/**
- * Main queue processing loop (iterative, not recursive)
- */
-export async function startRunner(): Promise<void> {
-  console.log('🏃‍♂️ Queue runner started');
-  
-  let jobCount = 0;
-  try {
-    while (true) {
-      console.log(`🔄 Queue runner iteration ${jobCount + 1}`);
-      
-      const job = await claimNextJob();
-      if (!job) {
-        console.log('📭 No more jobs in queue. Runner stopping.');
-        break;
-      }
-
-      jobCount++;
-      console.log(`⚙️ Processing job ${job.jobId} (${jobCount})`);
-      console.log(`📁 File URLs:`, job.fileUrls);
-      
-      try {
-        await processJob(job.jobId, job.fileUrls);
-        await markJobCompleted(job.jobId);
-        console.log(`✅ Job ${job.jobId} completed successfully`);
-      } catch (error) {
-        console.error(`❌ Job ${job.jobId} failed:`, error);
-        await markJobFailed(job.jobId, error instanceof Error ? error.message : 'Processing failed');
-      }
-    }
-  } catch (error) {
-    console.error('💥 Fatal error in queue runner:', error);
-    // Runner will stop, but can be restarted by next job enqueue
-  }
-  
-  console.log(`🏁 Queue runner stopped after processing ${jobCount} jobs`);
-}
+// Removed startRunner() - using simplified single job processing
 
 /**
  * Claim the next job in the queue atomically
@@ -445,34 +354,4 @@ export async function getQueueStatus(userId: string = 'anonymous'): Promise<{
   }
 }
 
-/**
- * Cleanup stuck jobs (called periodically)
- */
-export async function cleanupStuckJobs(): Promise<number> {
-  try {
-    const supabase = getSupabaseClient();
-    
-    const { data, error } = await supabase.rpc('cleanup_stuck_jobs', { 
-      timeout_minutes: 65 
-    });
-
-    if (error) {
-      console.error('Error cleaning up stuck jobs:', error);
-      return 0;
-    }
-
-    const cleanedCount = data?.length || 0;
-    
-    if (cleanedCount > 0) {
-      console.log(`Cleaned up ${cleanedCount} stuck jobs`);
-      // Restart runner if we freed up processing slots
-      startRunnerIfNeeded();
-    }
-
-    return cleanedCount;
-
-  } catch (error) {
-    console.error('Unexpected error cleaning up stuck jobs:', error);
-    return 0;
-  }
-}
+// Removed cleanupStuckJobs() - trusting simple approach without complex cleanup
