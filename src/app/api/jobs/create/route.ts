@@ -105,9 +105,29 @@ export async function POST(request: NextRequest) {
     // Get current queue status for user feedback
     const queueStatus = await getQueueStatus(userId);
 
-    // TRIGGER PROCESSING VIA CRON: Let the cron job handle processing
-    console.log('🚀 Job created, processing will be handled by cron job...');
-    console.log('⏰ Cron job runs every minute and will pick up queued jobs automatically');
+    // TRIGGER IMMEDIATE PROCESSING: Start processing via dedicated endpoint
+    console.log('🚀 Job created, triggering immediate processing...');
+    
+    // Use fetch with a very short timeout to trigger processing without blocking response
+    const processingUrl = new URL('/api/queue/process-single', request.url).toString();
+    console.log(`🔄 Triggering processing at: ${processingUrl}`);
+    
+    // Fire-and-forget request that doesn't block the response
+    fetch(processingUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-processing-trigger': 'job-creation'
+      },
+      body: JSON.stringify({ trigger: 'immediate' })
+    }).then(response => {
+      console.log(`🎯 Processing trigger response: ${response.status}`);
+      return response.text();
+    }).then(body => {
+      console.log(`📄 Processing trigger body: ${body.substring(0, 200)}`);
+    }).catch(err => {
+      console.log(`⚠️ Processing trigger failed (expected): ${err.message}`);
+    });
 
     return NextResponse.json({
       jobId: result.jobId,
