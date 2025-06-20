@@ -207,8 +207,20 @@ export async function startRunnerIfNeeded(): Promise<void> {
       
       if (queuedJobs && queuedJobs.length > 0) {
         console.log('🎯 Starting queue runner for queued jobs...');
-        // Use setImmediate to avoid blocking the response
-        setImmediate(() => startRunner());
+        // In serverless, we need to trigger the runner via HTTP
+        // Can't use setImmediate as function will terminate
+        console.log('🔄 Triggering queue runner via HTTP...');
+        
+        // Fire and forget HTTP request to start runner
+        fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://eod-agentic-flow-queue-mode.vercel.app'}/api/queue/process`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-queue-trigger': 'internal'
+          }
+        }).catch(err => {
+          console.error('Failed to trigger queue runner:', err);
+        });
       } else {
         console.log('📭 No queued jobs to process');
       }
