@@ -96,6 +96,10 @@ export async function triggerInternalApi(
     
     console.log(`🔄 Triggering internal API: ${url}`);
     console.log(`🔍 Request object available: ${!!request}`);
+    console.log(`🔍 Making POST request with headers:`, {
+      'Content-Type': 'application/json',
+      'x-queue-trigger': 'internal'
+    });
     console.log(`🔍 Environment variables:`, {
       VERCEL_URL: process.env.VERCEL_URL,
       VERCEL_BRANCH_URL: process.env.VERCEL_BRANCH_URL,
@@ -110,17 +114,30 @@ export async function triggerInternalApi(
         'x-queue-trigger': 'internal',
         ...options.headers
       },
+      body: JSON.stringify({ trigger: 'queue-processing' }),
       ...options
     });
     
     // Log the result but don't block
     fetchPromise
       .then(response => {
-        console.log(`✅ Internal API call successful: ${response.status} ${response.statusText}`);
+        console.log(`📡 HTTP Response: ${response.status} ${response.statusText}`);
+        console.log(`📡 Response headers:`, Object.fromEntries(response.headers.entries()));
         return response.text();
       })
       .then(body => {
-        console.log(`📄 Response body: ${body.substring(0, 200)}`);
+        console.log(`📄 Response body: ${body.substring(0, 300)}`);
+        // Parse JSON to see if it's the expected processing response
+        try {
+          const parsed = JSON.parse(body);
+          if (parsed.message === "Use POST to process queue") {
+            console.error(`🚨 DETECTED GET REQUEST ISSUE: The endpoint received a GET request instead of POST!`);
+          } else if (parsed.success) {
+            console.log(`✅ Queue processing triggered successfully`);
+          }
+        } catch (e) {
+          console.log(`📄 Non-JSON response received`);
+        }
       })
       .catch(err => {
         console.error(`❌ Failed to trigger ${path}:`, err);
