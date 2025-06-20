@@ -32,9 +32,9 @@ export default function UploadInterface({ onJobCreated }: UploadInterfaceProps) 
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
-  // Check if queue mode is available (requires proper storage setup)
-  const queueModeAvailable = process.env.NEXT_PUBLIC_ENABLE_QUEUE_MODE === 'true';
-  const [useQueueMode, setUseQueueMode] = useState(queueModeAvailable) // Default based on env
+  // Always show queue mode toggle for testing
+  const queueModeAvailable = true;
+  const [useQueueMode, setUseQueueMode] = useState(true) // Default to queue mode
 
   const validateFile = (file: File): boolean => {
     if (file.type !== 'application/pdf') {
@@ -191,35 +191,33 @@ export default function UploadInterface({ onJobCreated }: UploadInterfaceProps) 
           Upload your insurance estimate and roof inspection report to begin analysis
         </p>
         
-        {/* Queue Mode Toggle - only show if available */}
-        {queueModeAvailable && (
-          <div className="mt-4 inline-flex items-center space-x-3 bg-gray-50 rounded-lg p-2">
-            <label className="inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                className="sr-only"
-                checked={useQueueMode}
-                onChange={(e) => setUseQueueMode(e.target.checked)}
-              />
-              <div className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                useQueueMode ? 'bg-blue-600' : 'bg-gray-300'
-              }`}>
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  useQueueMode ? 'translate-x-6' : 'translate-x-1'
-                }`} />
-              </div>
-              <span className="ml-2 text-sm text-gray-700">
-                {useQueueMode ? 'Queue Mode (Fast)' : 'Direct Mode (Wait)'}
-              </span>
-            </label>
-            <div className="text-xs text-gray-500">
-              {useQueueMode 
-                ? '~2s response, background processing' 
-                : '~60s wait, immediate results'
-              }
+        {/* Queue Mode Toggle */}
+        <div className="mt-4 inline-flex items-center space-x-3 bg-gray-50 rounded-lg p-2">
+          <label className="inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              className="sr-only"
+              checked={useQueueMode}
+              onChange={(e) => setUseQueueMode(e.target.checked)}
+            />
+            <div className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              useQueueMode ? 'bg-blue-600' : 'bg-gray-300'
+            }`}>
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                useQueueMode ? 'translate-x-6' : 'translate-x-1'
+              }`} />
             </div>
+            <span className="ml-2 text-sm text-gray-700">
+              {useQueueMode ? 'Queue Mode (Fast)' : 'Direct Mode (Wait)'}
+            </span>
+          </label>
+          <div className="text-xs text-gray-500">
+            {useQueueMode 
+              ? '~2s response, background processing' 
+              : '~60s wait, immediate results'
+            }
           </div>
-        )}
+        </div>
       </div>
 
       {error && (
