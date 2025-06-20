@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET() {
   try {
-    console.log('🧪 Test endpoint called (simplified approach)');
+    console.log('🧪 Test endpoint called (simplified approach v2)');
     
     // Import available queue functions
     const { getQueueStatus } = await import('@/lib/queue');
