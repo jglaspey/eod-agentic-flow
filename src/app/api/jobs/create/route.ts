@@ -105,43 +105,9 @@ export async function POST(request: NextRequest) {
     // Get current queue status for user feedback
     const queueStatus = await getQueueStatus(userId);
 
-    // SIMPLE DIRECT APPROACH: Skip HTTP entirely, process directly
-    console.log('🚀 Job created, starting direct processing...');
-    
-    try {
-      const { claimNextJob, processJob, markJobCompleted, markJobFailed } = await import('@/lib/queue');
-      
-      // Claim and process the job directly 
-      const job = await claimNextJob();
-      if (job) {
-        console.log(`⚙️ Claimed job ${job.jobId}, processing directly...`);
-        
-        // Process immediately but don't await (return response quickly)
-        processJob(job.jobId, job.fileUrls)
-          .then(async () => {
-            await markJobCompleted(job.jobId);
-            console.log(`✅ Job ${job.jobId} completed successfully`);
-            
-            // Check for more jobs and process them
-            const nextJob = await claimNextJob();
-            if (nextJob) {
-              console.log(`🔄 Processing next job ${nextJob.jobId}...`);
-              // Continue processing chain
-              processJob(nextJob.jobId, nextJob.fileUrls)
-                .then(() => markJobCompleted(nextJob.jobId))
-                .catch(err => markJobFailed(nextJob.jobId, err.message));
-            }
-          })
-          .catch(async (error) => {
-            console.error(`❌ Job ${job.jobId} failed:`, error);
-            await markJobFailed(job.jobId, error instanceof Error ? error.message : 'Processing failed');
-          });
-      } else {
-        console.log('📭 No job claimed (might be already processing)');
-      }
-    } catch (error) {
-      console.error('❌ Error in direct queue processing:', error);
-    }
+    // TRIGGER PROCESSING VIA CRON: Let the cron job handle processing
+    console.log('🚀 Job created, processing will be handled by cron job...');
+    console.log('⏰ Cron job runs every minute and will pick up queued jobs automatically');
 
     return NextResponse.json({
       jobId: result.jobId,

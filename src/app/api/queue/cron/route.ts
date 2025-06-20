@@ -14,7 +14,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/lib/supabase';
 import { cleanupStuckJobs, getQueueStatus } from '@/lib/queue';
-import { triggerInternalApi } from '@/lib/url-utils';
 
 export const maxDuration = 60;
 
@@ -56,18 +55,43 @@ export async function GET(request: NextRequest) {
       }, { status: 500 });
     }
     
-    // 4. If there are queued jobs and no recent processing jobs, trigger processing
+    // 4. If there are queued jobs and no recent processing jobs, start direct processing
     if (queuedJobs && queuedJobs.length > 0 && status.processingJobs === 0) {
-      console.log(`🚀 Found ${queuedJobs.length} queued jobs with no processing jobs. Triggering processor...`);
+      console.log(`🚀 Found ${queuedJobs.length} queued jobs with no processing jobs. Starting direct processing...`);
       
-      // Check if the oldest job is more than 2 minutes old (stuck)
+      // Check if the oldest job is more than 1 minute old
       const oldestJob = queuedJobs[0];
       const jobAge = Date.now() - new Date(oldestJob.created_at).getTime();
-      const maxWaitTime = 2 * 60 * 1000; // 2 minutes
+      const maxWaitTime = 1 * 60 * 1000; // 1 minute
       
       if (jobAge > maxWaitTime) {
-        console.log(`⚠️ Oldest job is ${Math.round(jobAge / 1000)}s old, triggering backup processing`);
-        await triggerInternalApi('/api/queue/process', request);
+        console.log(`⚠️ Oldest job is ${Math.round(jobAge / 1000)}s old, starting cron processing`);
+        
+        try {
+          const { claimNextJob, processJob, markJobCompleted, markJobFailed } = await import('@/lib/queue');
+          
+          // Process up to 3 jobs in this cron run to avoid timeout
+          for (let i = 0; i < 3; i++) {
+            const job = await claimNextJob();
+            if (!job) {
+              console.log('📭 No more jobs to claim');
+              break;
+            }
+            
+            console.log(`⚙️ Cron processing job ${job.jobId} (${i + 1}/3)...`);
+            
+            try {
+              await processJob(job.jobId, job.fileUrls);
+              await markJobCompleted(job.jobId);
+              console.log(`✅ Cron completed job ${job.jobId}`);
+            } catch (error) {
+              console.error(`❌ Cron failed job ${job.jobId}:`, error);
+              await markJobFailed(job.jobId, error instanceof Error ? error.message : 'Cron processing failed');
+            }
+          }
+        } catch (error) {
+          console.error('❌ Error in cron direct processing:', error);
+        }
       } else {
         console.log(`⏳ Oldest job is only ${Math.round(jobAge / 1000)}s old, waiting for primary processing`);
       }
