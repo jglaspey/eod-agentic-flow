@@ -105,12 +105,43 @@ export async function POST(request: NextRequest) {
     // Get current queue status for user feedback
     const queueStatus = await getQueueStatus(userId);
 
-    // Force start the runner to process the newly queued job
-    console.log('🚀 Job created, triggering queue processing...');
-    const { triggerInternalApi } = await import('@/lib/url-utils');
+    // SIMPLE DIRECT APPROACH: Skip HTTP entirely, process directly
+    console.log('🚀 Job created, starting direct processing...');
     
-    // Trigger queue processing using the new robust system
-    await triggerInternalApi('/api/queue/process', request);
+    try {
+      const { claimNextJob, processJob, markJobCompleted, markJobFailed } = await import('@/lib/queue');
+      
+      // Claim and process the job directly 
+      const job = await claimNextJob();
+      if (job) {
+        console.log(`⚙️ Claimed job ${job.jobId}, processing directly...`);
+        
+        // Process immediately but don't await (return response quickly)
+        processJob(job.jobId, job.fileUrls)
+          .then(async () => {
+            await markJobCompleted(job.jobId);
+            console.log(`✅ Job ${job.jobId} completed successfully`);
+            
+            // Check for more jobs and process them
+            const nextJob = await claimNextJob();
+            if (nextJob) {
+              console.log(`🔄 Processing next job ${nextJob.jobId}...`);
+              // Continue processing chain
+              processJob(nextJob.jobId, nextJob.fileUrls)
+                .then(() => markJobCompleted(nextJob.jobId))
+                .catch(err => markJobFailed(nextJob.jobId, err.message));
+            }
+          })
+          .catch(async (error) => {
+            console.error(`❌ Job ${job.jobId} failed:`, error);
+            await markJobFailed(job.jobId, error instanceof Error ? error.message : 'Processing failed');
+          });
+      } else {
+        console.log('📭 No job claimed (might be already processing)');
+      }
+    } catch (error) {
+      console.error('❌ Error in direct queue processing:', error);
+    }
 
     return NextResponse.json({
       jobId: result.jobId,
