@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getSupabaseClient } from './supabase';
 import { uploadJobFiles, downloadJobFile, cleanupJobFiles } from './storage';
 import { logStreamer } from './log-streamer';
+import { triggerInternalApi } from './url-utils';
 
 // For local development without storage, set this to true
 const USE_LOCAL_STORAGE_BYPASS = process.env.NODE_ENV === 'development' && !process.env.NEXT_PUBLIC_SUPABASE_URL?.includes('supabase.co');
@@ -207,20 +208,10 @@ export async function startRunnerIfNeeded(): Promise<void> {
       
       if (queuedJobs && queuedJobs.length > 0) {
         console.log('🎯 Starting queue runner for queued jobs...');
-        // In serverless, we need to trigger the runner via HTTP
-        // Can't use setImmediate as function will terminate
-        console.log('🔄 Triggering queue runner via HTTP...');
+        console.log('🔄 Triggering queue runner via dynamic URL detection...');
         
-        // Fire and forget HTTP request to start runner
-        fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://eod-agentic-flow-queue-mode.vercel.app'}/api/queue/process`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-queue-trigger': 'internal'
-          }
-        }).catch(err => {
-          console.error('Failed to trigger queue runner:', err);
-        });
+        // Use dynamic URL detection - no hardcoded URLs needed!
+        await triggerInternalApi('/api/queue/process');
       } else {
         console.log('📭 No queued jobs to process');
       }

@@ -118,6 +118,13 @@ npm run build        # Build for production
 5. 🎨 Update frontend to handle queue status and rapid submissions
 
 ## Documentation
-- `DEVELOPMENT_NOTES.md` - Detailed session logs and achievements
-- `AGENTIC_IMPLEMENTATION_PLAN.md` - Technical roadmap and implementation status
+All project documentation is organized in the `/docs` folder:
+- `/docs/DEVELOPMENT_NOTES.md` - Detailed session logs and achievements
+- `/docs/AGENTIC_IMPLEMENTATION_PLAN.md` - Technical roadmap and implementation status
+- `/docs/QUEUE_FIXES.md` - Queue system troubleshooting and fixes
+- `/docs/STORAGE_SETUP_INSTRUCTIONS.md` - Storage configuration guide
+- `/docs/manual-bucket-setup.md` - Manual storage bucket setup
+- `/docs/PRE-TESTING-CHECKLIST.md` - Pre-deployment testing checklist
+- `/docs/VERCEL_TROUBLESHOOTING.md` - Vercel deployment troubleshooting
+- `/docs/V2_QUEUE_SETUP.md` - Queue system setup and configuration
 - `project-docs/` - Client research and business rules documentation

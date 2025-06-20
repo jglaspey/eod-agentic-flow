@@ -3,10 +3,11 @@
  * For manually starting queue processing when jobs are stuck
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getQueueStatus } from '@/lib/queue';
+import { triggerInternalApi } from '@/lib/url-utils';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const status = await getQueueStatus();
     
@@ -18,22 +19,13 @@ export async function GET() {
       });
     }
     
-    // Trigger queue processing
-    const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://eod-agentic-flow-queue-mode.vercel.app'}/api/queue/process`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-queue-trigger': 'internal'
-      }
-    });
-    
-    const result = await response.json();
+    // Trigger queue processing using dynamic URL detection
+    await triggerInternalApi('/api/queue/process', request);
     
     return NextResponse.json({
       success: true,
-      message: 'Queue processing triggered',
-      queueStatus: status,
-      processingResult: result
+      message: 'Queue processing triggered via dynamic URL detection',
+      queueStatus: status
     });
     
   } catch (error) {

@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { claimNextJob, processJob, markJobCompleted, markJobFailed, getQueueStatus } from '@/lib/queue';
+import { triggerInternalApi } from '@/lib/url-utils';
 
 export const maxDuration = 60; // Maximum function duration
 
@@ -46,16 +47,8 @@ export async function POST(request: NextRequest) {
       if (queueStatus.queuedJobs > 0) {
         console.log(`📋 ${queueStatus.queuedJobs} more jobs in queue, triggering next...`);
         
-        // Trigger next job processing (fire and forget)
-        fetch(`${process.env.NEXT_PUBLIC_APP_URL || request.headers.get('origin') || 'https://eod-agentic-flow-queue-mode.vercel.app'}/api/queue/process`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-queue-trigger': 'internal'
-          }
-        }).catch(err => {
-          console.error('Failed to trigger next job:', err);
-        });
+        // Trigger next job processing using dynamic URL detection
+        await triggerInternalApi('/api/queue/process', request);
       }
       
       return NextResponse.json({ 
@@ -74,13 +67,7 @@ export async function POST(request: NextRequest) {
       const queueStatus = await getQueueStatus();
       if (queueStatus.queuedJobs > 0) {
         console.log('📋 Triggering next job despite failure...');
-        fetch(`${process.env.NEXT_PUBLIC_APP_URL || request.headers.get('origin') || 'https://eod-agentic-flow-queue-mode.vercel.app'}/api/queue/process`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-queue-trigger': 'internal'
-          }
-        }).catch(() => {});
+        await triggerInternalApi('/api/queue/process', request);
       }
       
       return NextResponse.json({ 
