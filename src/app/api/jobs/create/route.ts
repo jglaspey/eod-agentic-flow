@@ -107,28 +107,7 @@ export async function POST(request: NextRequest) {
 
     // Job created successfully - return queue status immediately
     console.log('🚀 Job created successfully, added to queue');
-    
-    // Trigger processing chain if no jobs are currently processing
-    if (queueStatus.processingJobs === 0) {
-      console.log('🔄 No jobs currently processing, starting the chain...');
-      
-      const baseUrl = request.headers.get('host') 
-        ? `${request.headers.get('x-forwarded-proto') || 'https'}://${request.headers.get('host')}`
-        : process.env.VERCEL_URL 
-        ? `https://${process.env.VERCEL_URL}`
-        : 'http://localhost:3000';
-        
-      // Fire and forget - don't await
-      fetch(`${baseUrl}/api/jobs/process`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': request.headers.get('authorization') || ''
-        }
-      }).catch(() => {
-        console.log('⚠️ Could not start processing chain, will retry later');
-      });
-    }
+    console.log('💡 Use the "Process Queue" button in the UI to start processing');
 
     return NextResponse.json({
       jobId: result.jobId,

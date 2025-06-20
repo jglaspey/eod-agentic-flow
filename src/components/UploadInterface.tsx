@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 
 interface UploadedFiles {
   estimate: File | null
@@ -35,6 +35,50 @@ export default function UploadInterface({ onJobCreated }: UploadInterfaceProps) 
   // Always show queue mode toggle for testing
   const queueModeAvailable = true;
   const [useQueueMode, setUseQueueMode] = useState(true) // Default to queue mode
+  const [queueStatus, setQueueStatus] = useState<QueueStatus | null>(null)
+  const [isProcessingQueue, setIsProcessingQueue] = useState(false)
+
+  // Manual queue trigger function
+  const triggerQueueProcessing = async () => {
+    setIsProcessingQueue(true)
+    try {
+      const response = await fetch('/api/queue/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      const result = await response.json()
+      
+      if (result.success) {
+        setSuccessMessage(`Queue processing triggered! ${result.message}`)
+        // Refresh queue status
+        await checkQueueStatus()
+      } else {
+        setError(`Queue processing failed: ${result.error}`)
+      }
+    } catch (error) {
+      setError('Failed to trigger queue processing')
+    } finally {
+      setIsProcessingQueue(false)
+    }
+  }
+
+  // Check current queue status
+  const checkQueueStatus = async () => {
+    try {
+      const response = await fetch('/api/jobs/create')
+      const data = await response.json()
+      setQueueStatus(data.queueStatus)
+    } catch (error) {
+      console.error('Failed to check queue status:', error)
+    }
+  }
+
+  // Check queue status on component mount
+  useEffect(() => {
+    if (useQueueMode) {
+      checkQueueStatus()
+    }
+  }, [useQueueMode])
 
   const validateFile = (file: File): boolean => {
     if (file.type !== 'application/pdf') {
@@ -158,6 +202,9 @@ export default function UploadInterface({ onJobCreated }: UploadInterfaceProps) 
           `Job ${result.jobId} queued successfully! ` +
           `Position in queue: ${result.queuePosition || 'Unknown'}.${result.estimatedWaitTime ? ` Estimated wait: ${result.estimatedWaitTime}` : ''}`
         )
+        
+        // Refresh queue status to show the new job
+        await checkQueueStatus()
       } else {
         onJobCreated({
           id: result.jobId,
@@ -218,6 +265,34 @@ export default function UploadInterface({ onJobCreated }: UploadInterfaceProps) 
             }
           </div>
         </div>
+        
+        {/* Queue Status and Manual Trigger */}
+        {useQueueMode && queueStatus && (
+          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-center justify-between">
+              <div className="text-sm">
+                <span className="font-medium text-blue-900">Queue Status:</span>
+                <span className="ml-2 text-blue-700">
+                  {queueStatus.totalQueued} queued, {queueStatus.totalProcessing} processing
+                </span>
+              </div>
+              {queueStatus.totalQueued > 0 && queueStatus.totalProcessing === 0 && (
+                <button
+                  onClick={triggerQueueProcessing}
+                  disabled={isProcessingQueue}
+                  className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {isProcessingQueue ? 'Triggering...' : 'Process Queue'}
+                </button>
+              )}
+            </div>
+            {queueStatus.totalQueued > 0 && queueStatus.totalProcessing === 0 && (
+              <div className="mt-1 text-xs text-blue-600">
+                ⚠️ Jobs are queued but not processing. Click "Process Queue" to start.
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {error && (
