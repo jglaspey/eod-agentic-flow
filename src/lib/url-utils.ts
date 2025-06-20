@@ -95,9 +95,15 @@ export async function triggerInternalApi(
     const url = createApiUrl(path, request);
     
     console.log(`🔄 Triggering internal API: ${url}`);
+    console.log(`🔍 Request object available: ${!!request}`);
+    console.log(`🔍 Environment variables:`, {
+      VERCEL_URL: process.env.VERCEL_URL,
+      VERCEL_BRANCH_URL: process.env.VERCEL_BRANCH_URL,
+      NODE_ENV: process.env.NODE_ENV
+    });
     
-    // Fire and forget - don't await the response
-    fetch(url, {
+    // Actually await the response to see if there are errors
+    const fetchPromise = fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -105,12 +111,28 @@ export async function triggerInternalApi(
         ...options.headers
       },
       ...options
-    }).catch(err => {
-      console.error(`Failed to trigger ${path}:`, err);
     });
     
+    // Log the result but don't block
+    fetchPromise
+      .then(response => {
+        console.log(`✅ Internal API call successful: ${response.status} ${response.statusText}`);
+        return response.text();
+      })
+      .then(body => {
+        console.log(`📄 Response body: ${body.substring(0, 200)}`);
+      })
+      .catch(err => {
+        console.error(`❌ Failed to trigger ${path}:`, err);
+        console.error(`❌ Error details:`, {
+          message: err.message,
+          name: err.name,
+          stack: err.stack?.substring(0, 300)
+        });
+      });
+    
   } catch (error) {
-    console.error(`Error creating URL for ${path}:`, error);
+    console.error(`💥 Error creating URL for ${path}:`, error);
   }
 }
 

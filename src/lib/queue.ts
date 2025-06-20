@@ -130,8 +130,7 @@ export async function enqueueJob(options: EnqueueJobOptions): Promise<EnqueueJob
 
     logStreamer.logStep(jobId, 'job-queued', `Job queued successfully at position ${queuePosition}`);
 
-    // Start the runner if no jobs are currently processing
-    startRunnerIfNeeded();
+    // Note: Queue processing is triggered from the API route with request context
 
     const totalTime = Date.now() - startTime;
     console.log(`Job ${jobId} enqueued successfully in ${totalTime}ms (upload: ${uploadTime}ms)`);

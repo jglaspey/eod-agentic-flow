@@ -106,15 +106,11 @@ export async function POST(request: NextRequest) {
     const queueStatus = await getQueueStatus(userId);
 
     // Force start the runner to process the newly queued job
-    console.log('🚀 Job created, manually starting runner...');
-    const { startRunnerIfNeeded } = await import('@/lib/queue');
-    setImmediate(async () => {
-      try {
-        await startRunnerIfNeeded();
-      } catch (error) {
-        console.error('Error starting runner:', error);
-      }
-    });
+    console.log('🚀 Job created, triggering queue processing...');
+    const { triggerInternalApi } = await import('@/lib/url-utils');
+    
+    // Trigger queue processing using the new robust system
+    await triggerInternalApi('/api/queue/process', request);
 
     return NextResponse.json({
       jobId: result.jobId,
