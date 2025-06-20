@@ -1,16 +1,15 @@
 /**
- * V2 Queue System - Maintenance Endpoint
- * Handles stuck job cleanup and queue health monitoring
+ * V2 Queue System - Simplified Health Endpoint
+ * Provides queue health monitoring (maintenance operations removed in simplified approach)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { cleanupStuckJobs, startRunnerIfNeeded } from '@/lib/queue'
 
-export const maxDuration = 60; // Allow time for cleanup operations
+export const maxDuration = 60;
 
 /**
  * POST /api/jobs/maintenance
- * Manually trigger maintenance operations
+ * Trigger simple queue processing (no complex maintenance in simplified approach)
  */
 export async function POST(request: NextRequest) {
   try {
@@ -18,33 +17,22 @@ export async function POST(request: NextRequest) {
     const operation = body.operation;
 
     switch (operation) {
-      case 'cleanup-stuck':
-        const cleanedCount = await cleanupStuckJobs();
-        return NextResponse.json({
-          success: true,
-          message: `Cleaned up ${cleanedCount} stuck jobs`,
-          cleanedJobCount: cleanedCount
+      case 'trigger-processing':
+        // Simple fire-and-forget trigger like job creation does
+        fetch('/api/jobs/process', {
+          method: 'POST',
+          keepalive: true,
+          headers: { 'Content-Type': 'application/json' }
         });
-
-      case 'restart-runner':
-        await startRunnerIfNeeded();
+        
         return NextResponse.json({
           success: true,
-          message: 'Queue runner restart triggered'
-        });
-
-      case 'full-maintenance':
-        const stuck = await cleanupStuckJobs();
-        await startRunnerIfNeeded();
-        return NextResponse.json({
-          success: true,
-          message: `Full maintenance complete. Cleaned ${stuck} stuck jobs and restarted runner.`,
-          cleanedJobCount: stuck
+          message: 'Processing trigger sent (fire-and-forget)'
         });
 
       default:
         return NextResponse.json(
-          { error: 'Invalid operation. Supported: cleanup-stuck, restart-runner, full-maintenance' },
+          { error: 'Invalid operation. Supported: trigger-processing' },
           { status: 400 }
         );
     }
@@ -122,7 +110,7 @@ function generateHealthRecommendations(status: {
   const recommendations: string[] = [];
 
   if (status.potentialStuckJobs) {
-    recommendations.push('Stuck jobs detected. Run cleanup-stuck operation.');
+    recommendations.push('Stuck jobs detected. In simplified approach, manually mark as failed if needed.');
   }
 
   if (status.queued > 10) {
@@ -134,7 +122,7 @@ function generateHealthRecommendations(status: {
   }
 
   if (status.processing === 0 && status.queued > 0) {
-    recommendations.push('Queue has jobs but none processing. Run restart-runner operation.');
+    recommendations.push('Queue has jobs but none processing. Use trigger-processing operation.');
   }
 
   if (recommendations.length === 0) {
