@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     console.log('🧪 Test endpoint called (simplified approach v2)');
     
@@ -34,7 +34,8 @@ export async function GET() {
     
     // Fire-and-forget trigger (like job creation does)
     console.log('🚀 Triggering queue processing (fire-and-forget)...');
-    fetch('/api/jobs/process', {
+    const processingUrl = new URL('/api/jobs/process', request.url).toString();
+    fetch(processingUrl, {
       method: 'POST',
       keepalive: true,
       headers: { 'Content-Type': 'application/json' }
@@ -57,7 +58,7 @@ export async function GET() {
   }
 }
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   // Same as GET for easy testing
-  return GET();
+  return GET(request);
 }

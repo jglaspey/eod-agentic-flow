@@ -108,8 +108,9 @@ export async function POST(request: NextRequest) {
     // FIRE-AND-FORGET PROCESSING TRIGGER (Layer 1 Pattern)
     console.log('🚀 Job created, triggering processing...');
     
-    // Simple fire-and-forget fetch - no await, no error handling, no promises
-    fetch('/api/jobs/process', {
+    // Simple fire-and-forget fetch with absolute URL
+    const processingUrl = new URL('/api/jobs/process', request.url).toString();
+    fetch(processingUrl, {
       method: 'POST',
       keepalive: true, // Critical for serverless reliability
       headers: { 'Content-Type': 'application/json' }

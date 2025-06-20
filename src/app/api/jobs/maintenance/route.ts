@@ -19,7 +19,8 @@ export async function POST(request: NextRequest) {
     switch (operation) {
       case 'trigger-processing':
         // Simple fire-and-forget trigger like job creation does
-        fetch('/api/jobs/process', {
+        const processingUrl = new URL('/api/jobs/process', request.url).toString();
+        fetch(processingUrl, {
           method: 'POST',
           keepalive: true,
           headers: { 'Content-Type': 'application/json' }
