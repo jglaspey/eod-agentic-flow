@@ -36,10 +36,40 @@ export async function POST(request: NextRequest) {
       await markJobCompleted(job.jobId);
       console.log(`✅ Job ${job.jobId} completed successfully`);
       
+      // 3. SELF-PERPETUATING: Check if more jobs exist
+      const { getQueueStatus } = await import('@/lib/queue');
+      const status = await getQueueStatus();
+      
+      if (status.queuedJobs > 0) {
+        console.log(`🔄 ${status.queuedJobs} more jobs in queue, triggering next processor`);
+        
+        // Trigger another processor using Next.js internal routing
+        // This avoids authentication issues
+        const baseUrl = request.headers.get('host') 
+          ? `${request.headers.get('x-forwarded-proto') || 'https'}://${request.headers.get('host')}`
+          : process.env.VERCEL_URL 
+          ? `https://${process.env.VERCEL_URL}`
+          : 'http://localhost:3000';
+          
+        // Fire and forget - don't await
+        fetch(`${baseUrl}/api/jobs/process`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            // Forward any auth headers
+            'Authorization': request.headers.get('authorization') || ''
+          }
+        }).catch(() => {
+          // Silently ignore errors - next job creation will restart the chain
+          console.log('⚠️ Could not trigger next processor, will retry on next job creation');
+        });
+      }
+      
       return NextResponse.json({
         success: true,
         message: `Job ${job.jobId} completed`,
-        jobId: job.jobId
+        jobId: job.jobId,
+        moreJobsQueued: status.queuedJobs
       });
       
     } catch (error) {
