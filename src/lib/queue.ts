@@ -292,24 +292,35 @@ export async function claimNextJob(): Promise<{jobId: string, fileUrls: any} | n
  */
 export async function processJob(jobId: string, fileUrls: any): Promise<void> {
   try {
+    console.log(`📁 Processing job ${jobId} with file URLs:`, fileUrls);
+    
     // Download files from storage
+    console.log(`⬇️ Downloading estimate file from: ${fileUrls.estimate}`);
     const estimateFile = fileUrls.estimate ? 
       await downloadJobFile(fileUrls.estimate, 'estimate.pdf') : null;
     
+    console.log(`⬇️ Downloading roof report file from: ${fileUrls.roofReport || 'none'}`);
     const roofReportFile = fileUrls.roofReport ? 
       await downloadJobFile(fileUrls.roofReport, 'roof-report.pdf') : null;
 
     if (!estimateFile) {
+      console.error(`❌ Failed to download estimate file for job ${jobId}`);
       throw new Error('Failed to download estimate file from storage');
     }
+    
+    console.log(`✅ Files downloaded successfully for job ${jobId}`);
 
     // Import the extracted processing function
+    console.log(`🔄 Starting processing pipeline for job ${jobId}`);
     const { processFilesWithNewAgent } = await import('./job-processor');
     
     // Process using existing pipeline
     await processFilesWithNewAgent(jobId, estimateFile, roofReportFile, Date.now());
+    
+    console.log(`✅ Processing completed for job ${jobId}`);
 
   } catch (error) {
+    console.error(`❌ Processing failed for job ${jobId}:`, error);
     // Log error but re-throw to be handled by runner
     logStreamer.logError(jobId, 'job-processing-error', 
       error instanceof Error ? error.message : 'Unknown processing error');
