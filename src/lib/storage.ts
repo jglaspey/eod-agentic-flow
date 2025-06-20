@@ -204,49 +204,67 @@ export async function cleanupJobFiles(jobId: string): Promise<void> {
 
 /**
  * Check if the storage bucket exists and is accessible
+ * Updated to work around RLS policy issues with bucket listing
  */
 export async function verifyStorageAccess(): Promise<boolean> {
   try {
     const supabase = getSupabaseClient();
     
-    // Try to list buckets to verify access
-    const { data, error } = await supabase.storage.listBuckets();
+    console.log('🧪 Testing storage with upload/download test (bypassing bucket listing)...');
     
-    if (error) {
-      console.error('Storage access verification failed:', error);
-      console.error('Make sure you have the correct Supabase URL and anon key in your environment variables');
-      return false;
-    }
-
-    console.log('Available storage buckets:', data?.map(b => b.id));
-
-    // Check if job-files bucket exists
-    const jobFilesBucket = data?.find(bucket => bucket.id === 'job-files');
-    if (!jobFilesBucket) {
-      console.error('job-files bucket not found. Please create it in Supabase dashboard.');
-      
-      // Try to create the bucket
-      console.log('Attempting to create job-files bucket...');
-      const { error: createError } = await supabase.storage.createBucket('job-files', {
-        public: false,
-        allowedMimeTypes: ['application/pdf'],
-        fileSizeLimit: 5242880 // 5MB
+    // Skip bucket listing due to RLS issues - test with actual file operations
+    const testFileName = `test-access-${Date.now()}.txt`;
+    const testContent = 'Storage verification test';
+    
+    // Test upload
+    const { error: uploadError } = await supabase.storage
+      .from('job-files')
+      .upload(testFileName, new Blob([testContent], { type: 'text/plain' }), {
+        upsert: true
       });
       
-      if (createError) {
-        console.error('Failed to create bucket:', createError);
+    if (uploadError) {
+      console.error('❌ Storage upload test failed:', uploadError);
+      
+      // Check if error indicates bucket doesn't exist
+      if (uploadError.message?.includes('bucket') && uploadError.message?.includes('not found')) {
+        console.error('job-files bucket not found. Please run debug-storage-fix.sql in Supabase SQL Editor.');
         return false;
       }
       
-      console.log('Successfully created job-files bucket');
-      return true;
+      console.error('Storage upload failed. Check permissions and RLS policies.');
+      return false;
     }
-
-    console.log('job-files bucket exists and is accessible');
+    
+    console.log('✅ Upload test successful');
+    
+    // Test download
+    const { data: downloadData, error: downloadError } = await supabase.storage
+      .from('job-files')
+      .download(testFileName);
+      
+    if (downloadError) {
+      console.error('❌ Storage download test failed:', downloadError);
+      // Clean up test file
+      await supabase.storage.from('job-files').remove([testFileName]);
+      return false;
+    }
+    
+    console.log('✅ Download test successful');
+    
+    // Clean up test file
+    const { error: deleteError } = await supabase.storage.from('job-files').remove([testFileName]);
+    if (deleteError) {
+      console.warn('⚠️ Failed to clean up test file (non-critical):', deleteError);
+    } else {
+      console.log('🧹 Test file cleaned up');
+    }
+    
+    console.log('✅ Storage verification complete - job-files bucket is fully accessible');
     return true;
 
   } catch (error) {
-    console.error('Unexpected error verifying storage access:', error);
+    console.error('💥 Unexpected error verifying storage access:', error);
     return false;
   }
 }
