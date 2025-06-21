@@ -288,7 +288,7 @@ export default function UploadInterface({ onJobCreated }: UploadInterfaceProps) 
             </div>
             {queueStatus.totalQueued > 0 && queueStatus.totalProcessing === 0 && (
               <div className="mt-1 text-xs text-blue-600">
-                ⚠️ Jobs are queued but not processing. Click "Process Queue" to start.
+                ⚠️ Jobs are queued but not processing. Click &quot;Process Queue&quot; to start.
               </div>
             )}
           </div>
