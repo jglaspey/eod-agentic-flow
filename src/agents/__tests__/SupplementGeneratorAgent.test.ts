@@ -129,8 +129,8 @@ describe('SupplementGeneratorAgent - Multi-Pass Integration', () => {
 
     expect(mockLog).toHaveBeenCalledWith(
       expect.any(String),
-      'pass-3-validation',
-      expect.stringContaining('Pass 3: Cross-reference validation'),
+      'pass-3-skipped',
+      expect.stringContaining('Pass 3 skipped'),
       expect.any(Object)
     )
 
