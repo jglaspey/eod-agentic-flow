@@ -272,62 +272,18 @@ export class SupplementGeneratorAgent extends Agent {
         agentType: this.agentType 
       });
 
-      // PASS 3: Cross-Reference Validation
-      this.log(LogLevel.INFO, 'pass-3-validation', `Pass 3: Cross-reference validation for ${combinedSupplements.length} supplements`, { agentType: this.agentType });
-      
-      await this.writeJobLog(jobId, 'multi-pass-3-start', LogLevel.INFO, `Multi-Pass System: Starting Pass 3 - Cross-Reference Validation`, {
+      // PASS 3: Cross-Reference Validation (disabled)
+      this.log(LogLevel.INFO, 'pass-3-skipped', `Pass 3 skipped: Cross-reference validation disabled for ${combinedSupplements.length} supplements`, { agentType: this.agentType });
+
+      await this.writeJobLog(jobId, 'multi-pass-3-skipped', LogLevel.INFO, `Multi-Pass System: Pass 3 Skipped - Validation disabled`, {
         pass: 3,
         totalSupplements: combinedSupplements.length,
-        description: 'Validating supplements against estimate and preventing duplicates'
+        description: 'Validation disabled - using combined supplements without filtering'
       });
-      
-      const validator = new SupplementValidator();
-      let validSupplements: DBSupplementItem[] = [];
-      let validationSummary = '';
-      
-      try {
-        if (combinedSupplements.length > 0) {
-          const validationResult = validator.validateSupplements(combinedSupplements, actualEstimateLineItems, jobData);
-          validSupplements = validationResult.validSupplements;
-          validationSummary = validationResult.summary;
-          
-          this.log(LogLevel.INFO, 'pass-3-complete', `Pass 3 complete: ${validationResult.validSupplements.length}/${combinedSupplements.length} supplements passed validation`, {
-            validCount: validationResult.validSupplements.length,
-            invalidCount: validationResult.invalidSupplements.length,
-            summary: validationSummary,
-            agentType: this.agentType
-          });
-          
-          await this.writeJobLog(jobId, 'multi-pass-3-complete', LogLevel.INFO, `Multi-Pass System: Pass 3 Complete - ${validationResult.validSupplements.length} supplements validated`, {
-            pass: 3,
-            validCount: validationResult.validSupplements.length,
-            invalidCount: validationResult.invalidSupplements.length,
-            rejectedItems: validationResult.invalidSupplements.map(s => s.line_item),
-            summary: validationSummary
-          });
-          
-          issuesOrSuggestions.push(validationSummary);
-          
-          // Log details about invalid supplements for debugging
-          if (validationResult.invalidSupplements.length > 0) {
-            validationResult.invalidSupplements.forEach(invalid => {
-              const issues = validationResult.validationResults.get(invalid.id)?.issues || [];
-              this.log(LogLevel.DEBUG, 'supplement-rejected', `Rejected supplement: ${invalid.line_item}`, { 
-                item: invalid.line_item, 
-                issues: issues.slice(0, 2), // First 2 issues for brevity
-                agentType: this.agentType 
-              });
-            });
-          }
-        } else {
-          this.log(LogLevel.INFO, 'pass-3-skipped', 'Pass 3 skipped: No supplements to validate', { agentType: this.agentType });
-        }
-      } catch (validationError: any) {
-        this.log(LogLevel.ERROR, 'pass-3-failed', `Pass 3 validation failed: ${validationError.message}`, { error: validationError.message, agentType: this.agentType });
-        issuesOrSuggestions.push(`Validation failed: ${validationError.message}`);
-        // Use unvalidated supplements as fallback
-        validSupplements = combinedSupplements;
-      }
+
+      const validSupplements: DBSupplementItem[] = combinedSupplements;
+      const validationSummary = 'Cross-reference validation disabled';
+      issuesOrSuggestions.push(validationSummary);
 
       // PASS 4: Optional Follow-up AI Call (if insufficient items found)
       const finalSupplements = validSupplements;
