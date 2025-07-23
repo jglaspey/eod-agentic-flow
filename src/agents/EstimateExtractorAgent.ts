@@ -708,12 +708,14 @@ For fields with uncertainty, add "*" to the end of string values or explain nume
       let confidence = 0.2; // Base confidence for any response
       
       // Try to parse as JSON first (new format)
+      let isJsonParsed = false;
       try {
         const jsonResponse = JSON.parse(trimmedResponse);
         if (jsonResponse.value !== undefined && jsonResponse.notes !== undefined) {
           // Handle JSON response format
           const value = jsonResponse.value;
           notes = jsonResponse.notes || '';
+          isJsonParsed = true;
           
           if (value === 'N/A' || value === null) {
             processedValue = null;
@@ -734,12 +736,13 @@ For fields with uncertainty, add "*" to the end of string values or explain nume
             value: processedValue,
             hasNotes: !!notes
           });
-        } else {
-          // JSON exists but wrong format - fall through to string parsing
-          throw new Error('JSON format missing required fields');
         }
       } catch (e) {
-        // Not JSON, fall back to original parsing logic
+        // Not JSON, continue with string parsing
+      }
+      
+      // Only do string parsing if JSON parsing failed
+      if (!isJsonParsed) {
         if (trimmedResponse === 'N/A') {
           processedValue = null;
           hasUncertainty = true;
