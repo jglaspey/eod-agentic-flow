@@ -700,17 +700,40 @@ For fields with uncertainty, add "*" to the end of string values or explain nume
       let notes = '';
       let confidence = 0.2; // Base confidence for any response
       
-      if (trimmedResponse === 'N/A') {
-        processedValue = null;
-        hasUncertainty = true;
-        confidence = 0.3;
-        notes = `${fieldName} could not be found in the document`;
-      } else if (trimmedResponse.endsWith('*')) {
-        processedValue = trimmedResponse.slice(0, -1);
-        hasUncertainty = true;
-        confidence = 0.6;
-        notes = `${fieldName}: AI made a best guess but is uncertain`;
-      } else if (trimmedResponse.length > 0) {
+      // Try to parse as JSON first (new format)
+      try {
+        const jsonResponse = JSON.parse(trimmedResponse);
+        if (jsonResponse.value !== undefined && jsonResponse.notes !== undefined) {
+          // Handle JSON response format
+          const value = jsonResponse.value;
+          notes = jsonResponse.notes || '';
+          
+          if (value === 'N/A' || value === null) {
+            processedValue = null;
+            hasUncertainty = true;
+            confidence = 0.3;
+          } else if (typeof value === 'string' && value.endsWith('*')) {
+            processedValue = value.slice(0, -1);
+            hasUncertainty = true;
+            confidence = 0.6;
+          } else {
+            processedValue = value;
+            confidence = 0.7;
+          }
+        }
+      } catch (e) {
+        // Not JSON, fall back to original parsing logic
+        if (trimmedResponse === 'N/A') {
+          processedValue = null;
+          hasUncertainty = true;
+          confidence = 0.3;
+          notes = `${fieldName} could not be found in the document`;
+        } else if (trimmedResponse.endsWith('*')) {
+          processedValue = trimmedResponse.slice(0, -1);
+          hasUncertainty = true;
+          confidence = 0.6;
+          notes = `${fieldName}: AI made a best guess but is uncertain`;
+        } else if (trimmedResponse.length > 0) {
         // Normal confident response
         confidence = 0.6;
         
