@@ -370,7 +370,7 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
                   <p className="whitespace-pre-wrap">{jobData.extraction_notes.split('; ').join('\n• ')}</p>
                 </div>
                 <p className="mt-2 text-xs">
-                  Fields marked with "*" in the dashboard indicate the AI made its best guess but wasn't completely certain.
+                  Fields marked with &quot;*&quot; in the dashboard indicate the AI made its best guess but wasn&apos;t completely certain.
                 </p>
               </div>
             </div>
