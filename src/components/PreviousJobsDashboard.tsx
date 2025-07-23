@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge'
 interface JobDisplayData {
   id: string
   property_address: string | null
+  customer_name: string | null
   insurance_carrier: string | null
   status: string
   created_at: string
@@ -46,6 +47,7 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
           created_at,
           job_data (
             property_address,
+            customer_name,
             insurance_carrier
           )
         `)
@@ -67,6 +69,7 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
       const displayData: JobDisplayData[] = jobsData.map((job: any) => ({
         id: job.id,
         property_address: job.job_data && job.job_data.length > 0 ? job.job_data[0].property_address : null,
+        customer_name: job.job_data && job.job_data.length > 0 ? job.job_data[0].customer_name : null,
         insurance_carrier: job.job_data && job.job_data.length > 0 ? job.job_data[0].insurance_carrier : null,
         status: job.status,
         created_at: new Date(job.created_at).toLocaleString(),
@@ -99,6 +102,7 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
               status,
               job_data (
                 property_address,
+                customer_name,
                 insurance_carrier
               )
             `)
@@ -116,6 +120,9 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
                       property_address: statusData.job_data && statusData.job_data.length > 0 
                         ? statusData.job_data[0].property_address 
                         : prevJob.property_address,
+                      customer_name: statusData.job_data && statusData.job_data.length > 0 
+                        ? statusData.job_data[0].customer_name 
+                        : prevJob.customer_name,
                       insurance_carrier: statusData.job_data && statusData.job_data.length > 0 
                         ? statusData.job_data[0].insurance_carrier 
                         : prevJob.insurance_carrier,
@@ -140,6 +147,7 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
       const newJobDisplay: JobDisplayData = {
         id: newJob.id,
         property_address: null, // Will be filled when processing completes
+        customer_name: null, // Will be filled when processing completes
         insurance_carrier: null, // Will be filled when processing completes
         status: newJob.status,
         created_at: new Date(newJob.created_at).toLocaleString(),
@@ -193,7 +201,7 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[350px]">Property Address</TableHead>
+              <TableHead className="w-[350px]">Customer Name</TableHead>
               <TableHead>Insurance Carrier</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Created</TableHead>
@@ -207,7 +215,7 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
                     {job.status === 'processing' && (
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
                     )}
-                    {job.property_address || (job.status === 'processing' ? 'Processing...' : 'Not Available')}
+                    {job.customer_name || job.property_address || (job.status === 'processing' ? 'Processing...' : 'Not Available')}
                   </Link>
                 </TableCell>
                 <TableCell>{job.insurance_carrier || (job.status === 'processing' ? 'Processing...' : 'Not Available')}</TableCell>

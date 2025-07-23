@@ -242,6 +242,7 @@ export class EstimateExtractorAgent extends Agent {
         const emptyField = (rationale: string) => this.createExtractedField(null, 0.1, rationale, 'fallback');
         const finalResults = {
           propertyAddress: emptyField('Extraction failed - no data available'),
+          customerName: emptyField('Extraction failed - no data available'),
           claimNumber: emptyField('Extraction failed - no data available'),
           insuranceCarrier: emptyField('Extraction failed - no data available'),
           dateOfLoss: emptyField('Extraction failed - no data available'),
@@ -369,6 +370,7 @@ export class EstimateExtractorAgent extends Agent {
     
     const fieldConfigs = await this.getAIConfigs([
       'extract_estimate_address',
+      'extract_estimate_customer',
       'extract_estimate_claim', 
       'extract_estimate_carrier',
       'extract_estimate_rcv',
@@ -378,35 +380,39 @@ export class EstimateExtractorAgent extends Agent {
     ])
 
     // Extract fields sequentially to avoid rate limits and timeouts
-    logStreamer.logDebug(jobId, 'sequential_field_extraction_start', 'Starting sequential field extraction', { fieldCount: 7 });
+    logStreamer.logDebug(jobId, 'sequential_field_extraction_start', 'Starting sequential field extraction', { fieldCount: 8 });
     console.log(`[${jobId}] EstimateExtractorAgent.extractFieldsFromText: About to start sequential field extraction`);
     
     const address = await this.extractSingleField('propertyAddress', text, fieldConfigs.extract_estimate_address, context);
-    console.log(`[${jobId}] Field 1/7 completed: propertyAddress`);
+    console.log(`[${jobId}] Field 1/8 completed: propertyAddress`);
+    
+    const customerName = await this.extractSingleField('customerName', text, fieldConfigs.extract_estimate_customer || fieldConfigs.extract_estimate_address, context);
+    console.log(`[${jobId}] Field 2/8 completed: customerName`);
     
     const claimNumber = await this.extractSingleField('claimNumber', text, fieldConfigs.extract_estimate_claim, context);
-    console.log(`[${jobId}] Field 2/7 completed: claimNumber`);
+    console.log(`[${jobId}] Field 3/8 completed: claimNumber`);
     
     const carrier = await this.extractSingleField('insuranceCarrier', text, fieldConfigs.extract_estimate_carrier, context);
-    console.log(`[${jobId}] Field 3/7 completed: insuranceCarrier`);
+    console.log(`[${jobId}] Field 4/8 completed: insuranceCarrier`);
     
     const rcv = await this.extractSingleField('totalRCV', text, fieldConfigs.extract_estimate_rcv, context);
-    console.log(`[${jobId}] Field 4/7 completed: totalRCV`);
+    console.log(`[${jobId}] Field 5/8 completed: totalRCV`);
     
     const acv = await this.extractSingleField('totalACV', text, fieldConfigs.extract_estimate_acv, context);
-    console.log(`[${jobId}] Field 5/7 completed: totalACV`);
+    console.log(`[${jobId}] Field 6/8 completed: totalACV`);
     
     const deductible = await this.extractSingleField('deductible', text, fieldConfigs.extract_estimate_deductible, context);
-    console.log(`[${jobId}] Field 6/7 completed: deductible`);
+    console.log(`[${jobId}] Field 7/8 completed: deductible`);
     
     const dol = await this.extractSingleField('dateOfLoss', text, fieldConfigs.extract_estimate_date_of_loss, context);
-    console.log(`[${jobId}] Field 7/7 completed: dateOfLoss`);
+    console.log(`[${jobId}] Field 8/8 completed: dateOfLoss`);
     
     console.log(`[${jobId}] EstimateExtractorAgent.extractFieldsFromText: Sequential field extraction completed successfully`);
     
     logStreamer.logDebug(jobId, 'parallel_field_extraction_complete', 'Parallel field extraction completed', {
       extractedValues: {
         propertyAddress: address.value,
+        customerName: customerName.value,
         claimNumber: claimNumber.value,
         insuranceCarrier: carrier.value,
         totalRCV: rcv.value,
@@ -437,6 +443,7 @@ export class EstimateExtractorAgent extends Agent {
 
     const result = {
       propertyAddress: address,
+      customerName: customerName,
       claimNumber: claimNumber,
       insuranceCarrier: carrier,
       dateOfLoss: {
@@ -553,6 +560,7 @@ If a field is not found or unclear, use null. For numeric fields, return only th
       
       const result = {
         propertyAddress: this.createExtractedField(parsed.propertyAddress, visionResult.confidence, 'Extracted via vision', 'vision'),
+        customerName: this.createExtractedField(parsed.customerName, visionResult.confidence, 'Extracted via vision', 'vision'),
         claimNumber: this.createExtractedField(parsed.claimNumber, visionResult.confidence, 'Extracted via vision', 'vision'),
         insuranceCarrier: this.createExtractedField(parsed.insuranceCarrier, visionResult.confidence, 'Extracted via vision', 'vision'),
         dateOfLoss: this.createExtractedField(parsed.dateOfLoss ? new Date(parsed.dateOfLoss) : null, visionResult.confidence * 0.8, 'Extracted via vision', 'vision'),
@@ -565,6 +573,7 @@ If a field is not found or unclear, use null. For numeric fields, return only th
       logStreamer.logDebug(jobId, 'extract_fields_from_vision_complete', 'EstimateExtractorAgent.extractFieldsFromVision() completed', {
         parsedValues: {
           propertyAddress: parsed.propertyAddress,
+          customerName: parsed.customerName,
           claimNumber: parsed.claimNumber,
           insuranceCarrier: parsed.insuranceCarrier,
           totalRCV: parsed.totalRCV,
@@ -910,6 +919,7 @@ If a field is not found or unclear, use null. For numeric fields, return only th
         const emptyField = (rationale: string) => this.createExtractedField(null, 0, rationale, 'fallback');
         return {
             propertyAddress: emptyField('No data from text or vision'),
+            customerName: emptyField('No data from text or vision'),
             claimNumber: emptyField('No data from text or vision'),
             insuranceCarrier: emptyField('No data from text or vision'),
             dateOfLoss: emptyField('No data from text or vision'),
@@ -935,6 +945,7 @@ If a field is not found or unclear, use null. For numeric fields, return only th
     
     const result = {
       propertyAddress: this.selectBestField(textResults.propertyAddress, visionResults.propertyAddress),
+      customerName: this.selectBestField(textResults.customerName, visionResults.customerName),
       claimNumber: this.selectBestField(textResults.claimNumber, visionResults.claimNumber),
       insuranceCarrier: this.selectBestField(textResults.insuranceCarrier, visionResults.insuranceCarrier),
       dateOfLoss: this.selectBestField(textResults.dateOfLoss, visionResults.dateOfLoss),

@@ -13,6 +13,8 @@ interface ResultsDisplayProps {
 export default function ResultsDisplay({ job, jobData, supplements }: ResultsDisplayProps) {
   const router = useRouter()
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [downloadingEstimate, setDownloadingEstimate] = useState(false)
+  const [downloadingRoof, setDownloadingRoof] = useState(false)
 
   // Debug: Log supplements data when component renders
   console.log('🔍 DEBUG: ResultsDisplay rendered with supplements:', {
@@ -207,6 +209,39 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
     router.push('/')
   }
 
+  const handleDownloadPDF = async (dataUrl: string, filename: string, setLoading: (loading: boolean) => void) => {
+    setLoading(true)
+    try {
+      // Create a blob from the base64 data
+      const response = await fetch(dataUrl)
+      const blob = await response.blob()
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      link.style.display = 'none'
+      
+      // Trigger download
+      document.body.appendChild(link)
+      link.click()
+      
+      // Cleanup
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error('Error downloading PDF:', error)
+      // Fallback to direct link
+      const link = document.createElement('a')
+      link.href = dataUrl
+      link.download = filename
+      link.click()
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Low Confidence Warning Banner */}
@@ -274,9 +309,15 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
             <div>
               <h3 className="text-lg font-medium text-gray-900 mb-3">Property Details</h3>
               <div className="space-y-2">
+                {jobData.customer_name && (
+                  <div>
+                    <p className="text-sm text-gray-500">Customer Name</p>
+                    <p className="font-medium">{jobData.customer_name}</p>
+                  </div>
+                )}
                 {jobData.property_address && (
                   <div>
-                    <p className="text-sm text-gray-500">Address</p>
+                    <p className="text-sm text-gray-500">Property Address</p>
                     <p className="font-medium">{jobData.property_address}</p>
                   </div>
                 )}
@@ -444,6 +485,47 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
           </div>
         )}
       </div>
+
+      {/* Download Original Files */}
+      {(job.estimate_pdf_url || job.roof_report_pdf_url) && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Download Original Files</h2>
+          <div className="flex space-x-4">
+            {job.estimate_pdf_url && (
+              <button
+                onClick={() => handleDownloadPDF(job.estimate_pdf_url!, `estimate-${job.id}.pdf`, setDownloadingEstimate)}
+                disabled={downloadingEstimate}
+                className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium py-2 px-4 rounded-md transition-colors inline-flex items-center"
+              >
+                {downloadingEstimate ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                ) : (
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                )}
+                {downloadingEstimate ? 'Preparing Download...' : 'Insurance Estimate PDF'}
+              </button>
+            )}
+            {job.roof_report_pdf_url && (
+              <button
+                onClick={() => handleDownloadPDF(job.roof_report_pdf_url!, `roof-report-${job.id}.pdf`, setDownloadingRoof)}
+                disabled={downloadingRoof}
+                className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-medium py-2 px-4 rounded-md transition-colors inline-flex items-center"
+              >
+                {downloadingRoof ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                ) : (
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                )}
+                {downloadingRoof ? 'Preparing Download...' : 'Roof Report PDF'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Export Options - temporarily hidden */}
       {false && (
