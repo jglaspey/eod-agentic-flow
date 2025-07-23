@@ -692,7 +692,14 @@ For fields with uncertainty, add "*" to the end of string values or explain nume
       }
       
       const aiResponse = await this.callAI(config, fullPrompt, context.taskId || 'unknown-task')
-      const trimmedResponse = aiResponse.trim();
+      let trimmedResponse = aiResponse.trim();
+      
+      // Remove any markdown code blocks if present
+      if (trimmedResponse.startsWith('```json') && trimmedResponse.endsWith('```')) {
+        trimmedResponse = trimmedResponse.slice(7, -3).trim();
+      } else if (trimmedResponse.startsWith('```') && trimmedResponse.endsWith('```')) {
+        trimmedResponse = trimmedResponse.slice(3, -3).trim();
+      }
       
       // Process response for uncertainty indicators
       let processedValue: string | null = trimmedResponse;
@@ -720,6 +727,16 @@ For fields with uncertainty, add "*" to the end of string values or explain nume
             processedValue = value;
             confidence = 0.7;
           }
+          
+          // Log successful JSON parsing
+          logStreamer.logDebug(jobId, 'json_parse_success', `Successfully parsed JSON response for ${fieldName}`, {
+            fieldName,
+            value: processedValue,
+            hasNotes: !!notes
+          });
+        } else {
+          // JSON exists but wrong format - fall through to string parsing
+          throw new Error('JSON format missing required fields');
         }
       } catch (e) {
         // Not JSON, fall back to original parsing logic
