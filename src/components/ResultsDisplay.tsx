@@ -209,6 +209,25 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
     router.push('/')
   }
 
+  // Helper function to render field with uncertainty indicator
+  const renderFieldWithUncertainty = (label: string, value: string | number | undefined | null) => {
+    if (!value) return null;
+    
+    const isUncertain = typeof value === 'string' && value.endsWith('*');
+    const displayValue = isUncertain ? value.slice(0, -1) : value;
+    const isNotAvailable = value === 'N/A';
+    
+    return (
+      <div>
+        <p className="text-sm text-gray-500">{label}</p>
+        <p className={`font-medium ${isNotAvailable ? 'text-gray-500 italic' : ''}`}>
+          {isNotAvailable ? 'Not Available' : displayValue}
+          {isUncertain && <span className="text-amber-600 ml-1">*</span>}
+        </p>
+      </div>
+    );
+  }
+
   const handleDownloadPDF = async (dataUrl: string, filename: string, setLoading: (loading: boolean) => void) => {
     setLoading(true)
     try {
@@ -309,36 +328,11 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
             <div>
               <h3 className="text-lg font-medium text-gray-900 mb-3">Property Details</h3>
               <div className="space-y-2">
-                {jobData.customer_name && (
-                  <div>
-                    <p className="text-sm text-gray-500">Customer Name</p>
-                    <p className="font-medium">{jobData.customer_name}</p>
-                  </div>
-                )}
-                {jobData.property_address && (
-                  <div>
-                    <p className="text-sm text-gray-500">Property Address</p>
-                    <p className="font-medium">{jobData.property_address}</p>
-                  </div>
-                )}
-                {jobData.claim_number && (
-                  <div>
-                    <p className="text-sm text-gray-500">Claim Number</p>
-                    <p className="font-medium">{jobData.claim_number}</p>
-                  </div>
-                )}
-                {jobData.insurance_carrier && (
-                  <div>
-                    <p className="text-sm text-gray-500">Insurance Carrier</p>
-                    <p className="font-medium">{jobData.insurance_carrier}</p>
-                  </div>
-                )}
-                {jobData.total_rcv && (
-                  <div>
-                    <p className="text-sm text-gray-500">Total RCV</p>
-                    <p className="font-medium">{formatCurrency(jobData.total_rcv)}</p>
-                  </div>
-                )}
+                {renderFieldWithUncertainty('Customer Name', jobData.customer_name)}
+                {renderFieldWithUncertainty('Property Address', jobData.property_address)}
+                {renderFieldWithUncertainty('Claim Number', jobData.claim_number)}
+                {renderFieldWithUncertainty('Insurance Carrier', jobData.insurance_carrier)}
+                {jobData.total_rcv && renderFieldWithUncertainty('Total RCV', formatCurrency(jobData.total_rcv))}
               </div>
             </div>
 
@@ -346,48 +340,38 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
             <div>
               <h3 className="text-lg font-medium text-gray-900 mb-3">Roof Measurements</h3>
               <div className="space-y-2">
-                {jobData.roof_area_squares && (
-                  <div>
-                    <p className="text-sm text-gray-500">Total Area</p>
-                    <p className="font-medium">{jobData.roof_area_squares} squares</p>
-                  </div>
-                )}
-                {jobData.eave_length && (
-                  <div>
-                    <p className="text-sm text-gray-500">Eave Length</p>
-                    <p className="font-medium">{jobData.eave_length} LF</p>
-                  </div>
-                )}
-                {jobData.rake_length && (
-                  <div>
-                    <p className="text-sm text-gray-500">Rake Length</p>
-                    <p className="font-medium">{jobData.rake_length} LF</p>
-                  </div>
-                )}
-                {jobData.ridge_hip_length && (
-                  <div>
-                    <p className="text-sm text-gray-500">Ridge/Hip Length</p>
-                    <p className="font-medium">{jobData.ridge_hip_length} LF</p>
-                  </div>
-                )}
-                {jobData.valley_length && (
-                  <div>
-                    <p className="text-sm text-gray-500">Valley Length</p>
-                    <p className="font-medium">{jobData.valley_length} LF</p>
-                  </div>
-                )}
-                {jobData.stories && (
-                  <div>
-                    <p className="text-sm text-gray-500">Stories</p>
-                    <p className="font-medium">{jobData.stories}</p>
-                  </div>
-                )}
-                {jobData.pitch && (
-                  <div>
-                    <p className="text-sm text-gray-500">Pitch</p>
-                    <p className="font-medium">{jobData.pitch}</p>
-                  </div>
-                )}
+                {jobData.roof_area_squares && renderFieldWithUncertainty('Total Area', `${jobData.roof_area_squares} squares`)}
+                {jobData.eave_length && renderFieldWithUncertainty('Eave Length', `${jobData.eave_length} LF`)}
+                {jobData.rake_length && renderFieldWithUncertainty('Rake Length', `${jobData.rake_length} LF`)}
+                {jobData.ridge_hip_length && renderFieldWithUncertainty('Ridge/Hip Length', `${jobData.ridge_hip_length} LF`)}
+                {jobData.valley_length && renderFieldWithUncertainty('Valley Length', `${jobData.valley_length} LF`)}
+                {renderFieldWithUncertainty('Stories', jobData.stories?.toString())}
+                {renderFieldWithUncertainty('Pitch', jobData.pitch)}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Extraction Notes */}
+      {jobData?.extraction_notes && (
+        <div className="bg-amber-50 border-l-4 border-amber-400 rounded-lg shadow-md p-6">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-amber-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 3.001-1.742 3.001H4.42c-1.53 0-2.493-1.667-1.743-3.001l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <h3 className="text-lg font-medium text-amber-800">Extraction Notes</h3>
+              <div className="mt-2 text-sm text-amber-700">
+                <p className="mb-2">Some fields had extraction uncertainties or issues:</p>
+                <div className="bg-white bg-opacity-50 rounded p-3">
+                  <p className="whitespace-pre-wrap">{jobData.extraction_notes.split('; ').join('\n• ')}</p>
+                </div>
+                <p className="mt-2 text-xs">
+                  Fields marked with "*" in the dashboard indicate the AI made its best guess but wasn't completely certain.
+                </p>
               </div>
             </div>
           </div>

@@ -31,6 +31,7 @@ export interface JobData {
   supervisor_outcome?: string;
   supervisor_recommendations?: string;
   error_message?: string;
+  extraction_notes?: string;
 }
 
 export interface SupplementItem {

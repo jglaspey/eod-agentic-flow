@@ -509,7 +509,7 @@ export class EstimateExtractorAgent extends Agent {
     }
 
     const prompt = `
-Analyze these insurance estimate document images and extract the following information. Prioritize accuracy.
+Analyze these insurance estimate document images and extract the following information. Follow the uncertainty handling rules below.
 
 1.  **Property Address**: The physical address of the property where the damage occurred. Exclude any mailing addresses for the insured or insurer if different.
 2.  **Claim Number**: The unique identifier assigned to this insurance claim.
@@ -519,18 +519,24 @@ Analyze these insurance estimate document images and extract the following infor
 6.  **Deductible Amount**: The amount the policyholder is responsible for paying before the insurance coverage applies.
 7.  **Date of Loss**: The date when the damage or loss occurred.
 
+**UNCERTAINTY HANDLING RULES:**
+- If you cannot find a field at all: Set the value to "N/A" and include an explanation in the notes
+- If you can make a reasonable guess but aren't certain: Include the best guess value with "*" at the end, and explain the uncertainty in notes
+- If the field is clearly visible and certain: Return the value normally with no notes
+
 Return the information ONLY in this exact JSON format. Do not add any commentary before or after the JSON block:
 {
-  "propertyAddress": "string_value_or_null",
-  "claimNumber": "string_value_or_null",
-  "insuranceCarrier": "string_value_or_null",
+  "propertyAddress": "string_value_or_null_or_N/A",
+  "claimNumber": "string_value_or_null_or_N/A", 
+  "insuranceCarrier": "string_value_or_null_or_N/A",
   "totalRCV": numeric_value_or_null,
   "totalACV": numeric_value_or_null,
   "deductible": numeric_value_or_null,
-  "dateOfLoss": "YYYY-MM-DD_or_null"
+  "dateOfLoss": "YYYY-MM-DD_or_null",
+  "notes": "Accumulated notes about uncertainties, best guesses, or extraction issues. Empty string if no issues."
 }
 
-If a field is not found or unclear, use null. For numeric fields, return only the number, no currency symbols or text.
+For fields with uncertainty, add "*" to the end of string values or explain numeric uncertainty in notes. Always populate the notes field even if empty.
     `
 
     logStreamer.logDebug(jobId, 'vision_analysis_start', 'Starting vision analysis with AI model', { 
@@ -558,16 +564,39 @@ If a field is not found or unclear, use null. For numeric fields, return only th
       
       const parsed = JSON.parse(visionResult.extractedText.replace(/,(?=\s*\})/g, ''));
       
+      // Helper function to process field values and detect uncertainty
+      const processFieldValue = (value: any, fieldName: string, notes: string) => {
+        if (value === 'N/A') {
+          return this.createExtractedFieldWithNotes(null, visionResult.confidence * 0.3, 'Extracted via vision', 'vision', true, notes || `${fieldName} could not be found in the document`);
+        }
+        
+        if (typeof value === 'string' && value.endsWith('*')) {
+          const cleanValue = value.slice(0, -1); // Remove the asterisk
+          return this.createExtractedFieldWithNotes(cleanValue, visionResult.confidence * 0.6, 'Extracted via vision', 'vision', true, notes || `${fieldName}: AI made a best guess but is uncertain`);
+        }
+        
+        return this.createExtractedFieldWithNotes(value, visionResult.confidence, 'Extracted via vision', 'vision', false, notes);
+      };
+      
+      const extractionNotes = parsed.notes || '';
+      
       const result = {
-        propertyAddress: this.createExtractedField(parsed.propertyAddress, visionResult.confidence, 'Extracted via vision', 'vision'),
-        customerName: this.createExtractedField(parsed.customerName, visionResult.confidence, 'Extracted via vision', 'vision'),
-        claimNumber: this.createExtractedField(parsed.claimNumber, visionResult.confidence, 'Extracted via vision', 'vision'),
-        insuranceCarrier: this.createExtractedField(parsed.insuranceCarrier, visionResult.confidence, 'Extracted via vision', 'vision'),
-        dateOfLoss: this.createExtractedField(parsed.dateOfLoss ? new Date(parsed.dateOfLoss) : null, visionResult.confidence * 0.8, 'Extracted via vision', 'vision'),
-        totalRCV: this.createExtractedField(parsed.totalRCV, visionResult.confidence, 'Extracted via vision', 'vision'),
-        totalACV: this.createExtractedField(parsed.totalACV, visionResult.confidence * 0.9, 'Extracted via vision', 'vision'),
-        deductible: this.createExtractedField(parsed.deductible, visionResult.confidence * 0.9, 'Extracted via vision', 'vision'),
-        lineItems: this.createExtractedField([], 0.3, 'Line items not extracted by this vision prompt', 'vision')
+        propertyAddress: processFieldValue(parsed.propertyAddress, 'Property Address', extractionNotes),
+        customerName: processFieldValue(parsed.customerName, 'Customer Name', extractionNotes),
+        claimNumber: processFieldValue(parsed.claimNumber, 'Claim Number', extractionNotes),
+        insuranceCarrier: processFieldValue(parsed.insuranceCarrier, 'Insurance Carrier', extractionNotes),
+        dateOfLoss: (() => {
+          const processedField = processFieldValue(parsed.dateOfLoss, 'Date of Loss', extractionNotes);
+          return {
+            ...processedField,
+            value: processedField.value && processedField.value !== null ? new Date(processedField.value) : null
+          };
+        })(),
+        totalRCV: processFieldValue(parsed.totalRCV, 'Total RCV', extractionNotes),
+        totalACV: processFieldValue(parsed.totalACV, 'Total ACV', extractionNotes),
+        deductible: processFieldValue(parsed.deductible, 'Deductible', extractionNotes),
+        lineItems: this.createExtractedField([], 0.3, 'Line items not extracted by this vision prompt', 'vision'),
+        extractionNotes: extractionNotes
       };
       
       logStreamer.logDebug(jobId, 'extract_fields_from_vision_complete', 'EstimateExtractorAgent.extractFieldsFromVision() completed', {
@@ -665,10 +694,24 @@ If a field is not found or unclear, use null. For numeric fields, return only th
       const aiResponse = await this.callAI(config, fullPrompt, context.taskId || 'unknown-task')
       const trimmedResponse = aiResponse.trim();
       
-      // Improved confidence calculation based on response quality
+      // Process response for uncertainty indicators
+      let processedValue = trimmedResponse;
+      let hasUncertainty = false;
+      let notes = '';
       let confidence = 0.2; // Base confidence for any response
-      if (trimmedResponse.length > 0) {
-        // Base confidence for non-empty response
+      
+      if (trimmedResponse === 'N/A') {
+        processedValue = null;
+        hasUncertainty = true;
+        confidence = 0.3;
+        notes = `${fieldName} could not be found in the document`;
+      } else if (trimmedResponse.endsWith('*')) {
+        processedValue = trimmedResponse.slice(0, -1);
+        hasUncertainty = true;
+        confidence = 0.6;
+        notes = `${fieldName}: AI made a best guess but is uncertain`;
+      } else if (trimmedResponse.length > 0) {
+        // Normal confident response
         confidence = 0.6;
         
         // Bonus for reasonable length (10-200 chars for most fields)
@@ -688,7 +731,14 @@ If a field is not found or unclear, use null. For numeric fields, return only th
         }
       }
       
-      const result = this.createExtractedField(trimmedResponse.length > 0 ? trimmedResponse : null, Math.min(0.9, confidence), `Extracted via ${config.model_provider}`, 'text');
+      const result = this.createExtractedFieldWithNotes(
+        processedValue, 
+        Math.min(0.9, confidence), 
+        `Extracted via ${config.model_provider}`, 
+        'text',
+        hasUncertainty,
+        notes
+      );
       
       logStreamer.logDebug(jobId, 'extract_single_field_success', `Field extraction successful for ${fieldName}`, { 
         fieldName,
@@ -701,7 +751,7 @@ If a field is not found or unclear, use null. For numeric fields, return only th
     } catch (error) {
       this.log(LogLevel.ERROR, 'ai-call-error', `AI call failed for ${fieldName}: ${error}`, { error })
       logStreamer.logError(jobId, 'extract_single_field_error', `AI call failed for ${fieldName}: ${error}`, { fieldName, error });
-      return this.createExtractedField(null, 0.0, `AI extraction failed for ${fieldName}: ${error}`, 'text')
+      return this.createExtractedFieldWithNotes(null, 0.0, `AI extraction failed for ${fieldName}: ${error}`, 'text', true, `AI processing error for ${fieldName}: ${error}`)
     }
   }
 
@@ -853,6 +903,26 @@ If a field is not found or unclear, use null. For numeric fields, return only th
       rationale,
       source,
       attempts
+    }
+  }
+
+  public createExtractedFieldWithNotes<T>(
+    value: T, 
+    confidence: number, 
+    rationale: string, 
+    source: 'text' | 'vision' | 'hybrid' | 'fallback',
+    hasUncertainty: boolean = false,
+    notes?: string,
+    attempts: number = 1
+  ): ExtractedField<T> {
+    return {
+      value,
+      confidence: Math.max(0, Math.min(1, confidence)),
+      rationale,
+      source,
+      attempts,
+      hasUncertainty,
+      notes
     }
   }
 

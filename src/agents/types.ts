@@ -14,6 +14,8 @@ export interface ExtractedField<T> {
   attempts: number;
   pageNumber?: number; // Optional: page number where info was found
   coordinates?: string; // Optional: coordinates of the found element on the page (e.g., "x1,y1,x2,y2")
+  hasUncertainty?: boolean; // Indicates if the AI was uncertain about this field
+  notes?: string; // Notes about uncertainty, best guesses, or extraction issues
 }
 
 export interface ValidationResult {
@@ -136,6 +138,7 @@ export interface EstimateFieldExtractions {
   valleyLength?: ExtractedField<number | null>;
   stories?: ExtractedField<number | null>;
   pitch?: ExtractedField<string | null>;
+  extractionNotes?: string; // Accumulated notes from AI extraction
 }
 
 export interface RoofMeasurements {

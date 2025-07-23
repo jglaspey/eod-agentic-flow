@@ -233,6 +233,42 @@ export class OrchestrationAgent extends Agent {
             }));
         }
         
+        // Collect extraction notes from all fields with uncertainty
+        const extractionNotes: string[] = [];
+        
+        // Helper function to collect notes from fields
+        const collectFieldNotes = (field: any, fieldName: string) => {
+          if (field?.hasUncertainty && field?.notes) {
+            extractionNotes.push(`${fieldName}: ${field.notes}`);
+          }
+        };
+        
+        // Collect notes from estimate data
+        collectFieldNotes(estimateData.propertyAddress, 'Property Address');
+        collectFieldNotes(estimateData.customerName, 'Customer Name');
+        collectFieldNotes(estimateData.claimNumber, 'Claim Number');
+        collectFieldNotes(estimateData.insuranceCarrier, 'Insurance Carrier');
+        collectFieldNotes(estimateData.dateOfLoss, 'Date of Loss');
+        collectFieldNotes(estimateData.totalRCV, 'Total RCV');
+        collectFieldNotes(estimateData.totalACV, 'Total ACV');
+        collectFieldNotes(estimateData.deductible, 'Deductible');
+        
+        // Collect notes from roof data if available
+        if (roofData) {
+          collectFieldNotes(roofData.totalRoofArea, 'Roof Area');
+          collectFieldNotes(roofData.eaveLength, 'Eave Length');
+          collectFieldNotes(roofData.rakeLength, 'Rake Length');
+          collectFieldNotes(roofData.ridgeHipLength, 'Ridge/Hip Length');
+          collectFieldNotes(roofData.valleyLength, 'Valley Length');
+          collectFieldNotes(roofData.stories, 'Stories');
+          collectFieldNotes(roofData.pitch, 'Pitch');
+        }
+        
+        // Add any global extraction notes
+        if (estimateData.extractionNotes) {
+          extractionNotes.push(estimateData.extractionNotes);
+        }
+        
         // Construct the JobData object for saving
         const jobDataToSave: Partial<JobData> = {
           id: input.jobId, // PK for job_data table, assuming it's the same as jobs.id
@@ -254,6 +290,8 @@ export class OrchestrationAgent extends Agent {
           valley_length: roofData?.valleyLength?.value || estimateData.valleyLength?.value || undefined,
           stories: roofData?.stories?.value || estimateData.stories?.value || undefined,
           pitch: roofData?.pitch?.value || estimateData.pitch?.value || undefined,
+          // Accumulated extraction notes
+          extraction_notes: extractionNotes.length > 0 ? extractionNotes.join('; ') : undefined,
           // estimate_confidence, roof_report_confidence, supervisor_outcome etc. are in JobData type
           // and should be populated by the SupervisorAgent or later in the process if not here.
         };
