@@ -239,6 +239,7 @@ export class OrchestrationAgent extends Agent {
           job_id: input.jobId, // FK to jobs table
           // From Estimate
           property_address: estimateData.propertyAddress?.value || undefined,
+          customer_name: estimateData.customerName?.value || undefined,
           claim_number: estimateData.claimNumber?.value || undefined,
           insurance_carrier: estimateData.insuranceCarrier?.value || undefined,
           date_of_loss: estimateData.dateOfLoss?.value ? new Date(estimateData.dateOfLoss.value).toISOString() : undefined,

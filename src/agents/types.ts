@@ -120,6 +120,7 @@ export interface EstimateLineItem {
 
 export interface EstimateFieldExtractions {
   propertyAddress: ExtractedField<string | null>;
+  customerName: ExtractedField<string | null>;
   claimNumber: ExtractedField<string | null>;
   policyNumber?: ExtractedField<string | null>;
   insuranceCarrier: ExtractedField<string | null>;

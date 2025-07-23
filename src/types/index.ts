@@ -12,6 +12,7 @@ export interface JobData {
   id: string
   job_id: string
   property_address?: string
+  customer_name?: string
   claim_number?: string
   insurance_carrier?: string
   date_of_loss?: string

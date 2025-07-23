@@ -274,9 +274,15 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
             <div>
               <h3 className="text-lg font-medium text-gray-900 mb-3">Property Details</h3>
               <div className="space-y-2">
+                {jobData.customer_name && (
+                  <div>
+                    <p className="text-sm text-gray-500">Customer Name</p>
+                    <p className="font-medium">{jobData.customer_name}</p>
+                  </div>
+                )}
                 {jobData.property_address && (
                   <div>
-                    <p className="text-sm text-gray-500">Address</p>
+                    <p className="text-sm text-gray-500">Property Address</p>
                     <p className="font-medium">{jobData.property_address}</p>
                   </div>
                 )}
@@ -444,6 +450,39 @@ export default function ResultsDisplay({ job, jobData, supplements }: ResultsDis
           </div>
         )}
       </div>
+
+      {/* Download Original Files */}
+      {(job.estimate_pdf_url || job.roof_report_pdf_url) && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Download Original Files</h2>
+          <div className="flex space-x-4">
+            {job.estimate_pdf_url && (
+              <a
+                href={job.estimate_pdf_url}
+                download={`estimate-${job.id}.pdf`}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md transition-colors inline-flex items-center"
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Insurance Estimate PDF
+              </a>
+            )}
+            {job.roof_report_pdf_url && (
+              <a
+                href={job.roof_report_pdf_url}
+                download={`roof-report-${job.id}.pdf`}
+                className="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-md transition-colors inline-flex items-center"
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Roof Report PDF
+              </a>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Export Options - temporarily hidden */}
       {false && (

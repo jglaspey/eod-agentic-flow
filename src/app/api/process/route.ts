@@ -86,12 +86,18 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabaseClient()
 
+    // Convert files to base64 for storage
+    const estimateBase64 = estimateFile ? `data:application/pdf;base64,${Buffer.from(await estimateFile.arrayBuffer()).toString('base64')}` : null
+    const roofReportBase64 = roofReportFile ? `data:application/pdf;base64,${Buffer.from(await roofReportFile.arrayBuffer()).toString('base64')}` : null
+
     const { error: jobError } = await supabase
       .from('jobs')
       .insert({
         id: jobId,
         status: 'processing',
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        estimate_pdf_url: estimateBase64,
+        roof_report_pdf_url: roofReportBase64
       })
 
     if (jobError) {
