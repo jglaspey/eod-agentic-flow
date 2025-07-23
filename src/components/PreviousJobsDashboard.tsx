@@ -34,11 +34,15 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
   const [jobs, setJobs] = useState<JobDisplayData[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(true)
 
-  const fetchJobs = useCallback(async () => {
+  const JOBS_BATCH_SIZE = 30
+
+  const fetchJobs = useCallback(async (from = 0) => {
     try {
       const supabase = getSupabaseClient()
-      
+
       const { data: jobsData, error: fetchError } = await supabase
         .from('jobs')
         .select(`
@@ -52,7 +56,7 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
           )
         `)
         .order('created_at', { ascending: false })
-        .limit(20)
+        .range(from, from + JOBS_BATCH_SIZE - 1)
 
       if (fetchError) {
         console.error('Error fetching jobs for dashboard:', fetchError)
@@ -75,13 +79,20 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
         created_at: new Date(job.created_at).toLocaleString(),
       }))
 
-      setJobs(displayData)
+      setJobs(prev => (from === 0 ? displayData : [...prev, ...displayData]))
       setError(null)
+      if (displayData.length < JOBS_BATCH_SIZE) {
+        setHasMore(false)
+      }
     } catch (err) {
       console.error('Error in fetchJobs:', err)
       setError('Failed to load jobs')
     } finally {
-      setLoading(false)
+      if (from === 0) {
+        setLoading(false)
+      } else {
+        setLoadingMore(false)
+      }
     }
   }, [])
 
@@ -165,7 +176,7 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
 
   // Initial load
   useEffect(() => {
-    fetchJobs()
+    fetchJobs(0)
   }, [fetchJobs])
 
   const getStatusVariant = (status: string): "default" | "destructive" | "secondary" | "outline" => {
@@ -192,6 +203,11 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
 
   if (jobs.length === 0) {
     return <p className="text-gray-500 mt-8">No previous jobs found.</p>
+  }
+
+  const handleLoadMore = () => {
+    setLoadingMore(true)
+    fetchJobs(jobs.length)
   }
 
   return (
@@ -230,6 +246,17 @@ export function PreviousJobsDashboard({ newJob }: PreviousJobsDashboardProps) {
           </TableBody>
         </Table>
       </div>
+      {hasMore && (
+        <div className="mt-4 text-center">
+          <button
+            onClick={handleLoadMore}
+            disabled={loadingMore}
+            className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-2 px-6 rounded-md transition-colors"
+          >
+            {loadingMore ? 'Loading...' : 'Load More'}
+          </button>
+        </div>
+      )}
     </div>
   )
-} 
+}
