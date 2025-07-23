@@ -695,7 +695,7 @@ For fields with uncertainty, add "*" to the end of string values or explain nume
       const trimmedResponse = aiResponse.trim();
       
       // Process response for uncertainty indicators
-      let processedValue = trimmedResponse;
+      let processedValue: string | null = trimmedResponse;
       let hasUncertainty = false;
       let notes = '';
       let confidence = 0.2; // Base confidence for any response
