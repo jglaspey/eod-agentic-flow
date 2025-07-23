@@ -317,6 +317,7 @@ async function processFilesWithNewAgent(
       id: uuidv4(),
       job_id: jobId,
       property_address: estimateDataForReport?.propertyAddress || 'N/A',
+      customer_name: orchestrationOutput?.estimateExtraction?.data?.customerName?.value || undefined,
       claim_number: estimateDataForReport?.claimNumber || 'N/A',
       insurance_carrier: estimateDataForReport?.insuranceCarrier || 'N/A',
       date_of_loss: estimateDataForReport?.dateOfLoss,
