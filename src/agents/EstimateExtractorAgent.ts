@@ -734,23 +734,24 @@ For fields with uncertainty, add "*" to the end of string values or explain nume
           confidence = 0.6;
           notes = `${fieldName}: AI made a best guess but is uncertain`;
         } else if (trimmedResponse.length > 0) {
-        // Normal confident response
-        confidence = 0.6;
-        
-        // Bonus for reasonable length (10-200 chars for most fields)
-        if (trimmedResponse.length >= 10 && trimmedResponse.length <= 200) {
-          confidence += 0.2;
-        }
-        
-        // Bonus for containing expected patterns
-        if (fieldName.toLowerCase().includes('address') && /\d+.*[A-Za-z]/.test(trimmedResponse)) {
-          confidence += 0.1;
-        } else if (fieldName.toLowerCase().includes('claim') && /[A-Za-z0-9\-]{5,}/.test(trimmedResponse)) {
-          confidence += 0.1;
-        } else if ((fieldName.toLowerCase().includes('rcv') || fieldName.toLowerCase().includes('acv') || fieldName.toLowerCase().includes('deductible')) && /\d+/.test(trimmedResponse)) {
-          confidence += 0.1;
-        } else if (fieldName.toLowerCase().includes('carrier') && trimmedResponse.length > 3) {
-          confidence += 0.1;
+          // Normal confident response
+          confidence = 0.6;
+          
+          // Bonus for reasonable length (10-200 chars for most fields)
+          if (trimmedResponse.length >= 10 && trimmedResponse.length <= 200) {
+            confidence += 0.2;
+          }
+          
+          // Bonus for containing expected patterns
+          if (fieldName.toLowerCase().includes('address') && /\d+.*[A-Za-z]/.test(trimmedResponse)) {
+            confidence += 0.1;
+          } else if (fieldName.toLowerCase().includes('claim') && /[A-Za-z0-9\-]{5,}/.test(trimmedResponse)) {
+            confidence += 0.1;
+          } else if ((fieldName.toLowerCase().includes('rcv') || fieldName.toLowerCase().includes('acv') || fieldName.toLowerCase().includes('deductible')) && /\d+/.test(trimmedResponse)) {
+            confidence += 0.1;
+          } else if (fieldName.toLowerCase().includes('carrier') && trimmedResponse.length > 3) {
+            confidence += 0.1;
+          }
         }
       }
       
