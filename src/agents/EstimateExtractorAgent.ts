@@ -694,12 +694,28 @@ For fields with uncertainty, add "*" to the end of string values or explain nume
       const aiResponse = await this.callAI(config, fullPrompt, context.taskId || 'unknown-task')
       let trimmedResponse = aiResponse.trim();
       
-      // Remove any markdown code blocks if present
-      if (trimmedResponse.startsWith('```json') && trimmedResponse.endsWith('```')) {
-        trimmedResponse = trimmedResponse.slice(7, -3).trim();
-      } else if (trimmedResponse.startsWith('```') && trimmedResponse.endsWith('```')) {
-        trimmedResponse = trimmedResponse.slice(3, -3).trim();
+      // More robust markdown code block removal
+      if (trimmedResponse.includes('```json')) {
+        // Extract content between ```json and ```
+        const jsonMatch = trimmedResponse.match(/```json\s*([\s\S]*?)\s*```/);
+        if (jsonMatch) {
+          trimmedResponse = jsonMatch[1].trim();
+        }
+      } else if (trimmedResponse.includes('```')) {
+        // Extract content between ``` and ```
+        const codeMatch = trimmedResponse.match(/```\s*([\s\S]*?)\s*```/);
+        if (codeMatch) {
+          trimmedResponse = codeMatch[1].trim();
+        }
       }
+      
+      // Log the cleaned response for debugging
+      logStreamer.logDebug(jobId, 'ai_response_cleaned', `Cleaned AI response for ${fieldName}`, {
+        fieldName,
+        originalLength: aiResponse.length,
+        cleanedLength: trimmedResponse.length,
+        cleanedPreview: trimmedResponse.substring(0, 200)
+      });
       
       // Process response for uncertainty indicators
       let processedValue: string | null = trimmedResponse;
@@ -738,7 +754,43 @@ For fields with uncertainty, add "*" to the end of string values or explain nume
           });
         }
       } catch (e) {
-        // Not JSON, continue with string parsing
+        // JSON parsing failed, try to extract value manually as fallback
+        logStreamer.logDebug(jobId, 'json_parse_failed', `JSON parsing failed for ${fieldName}, attempting manual extraction`, {
+          fieldName,
+          error: e.toString(),
+          responsePreview: trimmedResponse.substring(0, 200)
+        });
+        
+        // Try to extract value from malformed JSON using regex
+        const valueMatch = trimmedResponse.match(/"value"\s*:\s*"([^"]*)"/) || 
+                          trimmedResponse.match(/"value"\s*:\s*([^,}]+)/);
+        const notesMatch = trimmedResponse.match(/"notes"\s*:\s*"([^"]*)"/) ||
+                          trimmedResponse.match(/"notes"\s*:\s*"([^"]*?)(?:",|\s*})/);
+        
+        if (valueMatch) {
+          const extractedValue = valueMatch[1].trim();
+          notes = notesMatch ? notesMatch[1] : `Manual extraction from malformed JSON for ${fieldName}`;
+          isJsonParsed = true;
+          
+          if (extractedValue === 'N/A' || extractedValue === 'null') {
+            processedValue = null;
+            hasUncertainty = true;
+            confidence = 0.3;
+          } else if (extractedValue.endsWith('*')) {
+            processedValue = extractedValue.slice(0, -1);
+            hasUncertainty = true;
+            confidence = 0.6;
+          } else {
+            processedValue = extractedValue;
+            confidence = 0.7;
+          }
+          
+          logStreamer.logDebug(jobId, 'manual_json_extraction_success', `Successfully extracted value manually for ${fieldName}`, {
+            fieldName,
+            extractedValue: processedValue,
+            notes: notes.substring(0, 100)
+          });
+        }
       }
       
       // Only do string parsing if JSON parsing failed
